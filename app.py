@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, redirect, make_response, jsonify, session, Response
 from propertyfinder import scrape_page
-from database import init_db, insert_companies, get_all_companies, get_companies_count, get_companies_for_csv, get_companies_filtered
+from database import init_db, insert_companies, get_all_companies, get_companies_count, get_companies_for_csv, get_companies_filtered, cleanup_duplicates
 import csv
 import io
 from datetime import datetime
@@ -14,6 +14,8 @@ app.secret_key = 'your-secret-key-change-this-in-production'
 progress_storage = {}
 
 init_db()
+# Clean up any existing duplicates on startup
+cleanup_duplicates()
 
 @app.after_request
 def after_request(response):
