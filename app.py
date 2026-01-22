@@ -42,8 +42,13 @@ def index():
         
         return redirect("/progress")
 
-    # GET request — just show page
-    return render_template("index.html")
+    # GET request — show page with existing data count
+    try:
+        existing_count = get_companies_count()
+    except:
+        existing_count = 0
+    
+    return render_template("index.html", existing_count=existing_count)
 
 
 @app.route("/progress")

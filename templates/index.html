@@ -113,6 +113,39 @@
             background-color: #45a049;
         }
         
+        .view-results-section {
+            margin-top: 30px;
+            padding-top: 30px;
+            border-top: 2px solid #e0e0e0;
+        }
+        
+        .existing-count {
+            text-align: center;
+            margin-bottom: 15px;
+            color: #666;
+            font-size: 1.1em;
+        }
+        
+        .view-results-button {
+            display: block;
+            width: 100%;
+            padding: 15px;
+            font-size: 1.2em;
+            background-color: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            text-decoration: none;
+            text-align: center;
+            transition: background-color 0.3s;
+        }
+        
+        .view-results-button:hover {
+            background-color: #1976D2;
+        }
+        
         @media (max-width: 768px) {
             .overlay-text {
                 font-size: 2em;
@@ -133,6 +166,15 @@
             <input type="number" id="pages" name="pages" value="1" min="1" max="20" required>
             <button type="submit">Run Scraper</button>
         </form>
+        
+        {% if existing_count > 0 %}
+        <div class="view-results-section">
+            <div class="existing-count">
+                <strong>{{ existing_count }}</strong> agencies already in database
+            </div>
+            <a href="/view-results" class="view-results-button">View Current Results</a>
+        </div>
+        {% endif %}
     </div>
 </body>
 </html>
