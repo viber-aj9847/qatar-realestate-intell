@@ -75,8 +75,38 @@ git push origin main
 
 Render will automatically detect the push and redeploy your app (usually takes 1-3 minutes).
 
+## Database Setup
+
+### Local Development
+The app uses SQLite locally (no setup required). The database file `properties.db` will be created automatically.
+
+### Production (Render)
+The app uses PostgreSQL on Render for persistent data storage.
+
+**To set up PostgreSQL on Render:**
+
+1. **Create PostgreSQL Database:**
+   - Go to Render dashboard → "New +" → "PostgreSQL"
+   - Name: `qatar-property-db` (or your choice)
+   - Database: `qatar_property_db`
+   - Region: Same as your web service
+   - Plan: Free
+   - Click "Create Database"
+
+2. **Add Database URL to Web Service:**
+   - Go to your web service on Render
+   - Click "Environment" tab
+   - Add new environment variable:
+     - Key: `DATABASE_URL`
+     - Value: Copy the "Internal Database URL" from your PostgreSQL service
+   - Save changes
+
+3. **Redeploy:**
+   - Render will automatically redeploy when you push code
+   - The app will automatically use PostgreSQL when `DATABASE_URL` is set
+
 ## Notes
 
-- The app uses SQLite for the database. On Render's free tier, data may be lost on redeploys.
-- For persistent data, consider upgrading to Render's PostgreSQL database (free tier available).
-- The app sleeps after 15 minutes of inactivity on Render's free tier (wakes on first request).
+- The app automatically uses PostgreSQL on Render (when `DATABASE_URL` is set) or SQLite locally
+- Data persists across redeploys with PostgreSQL
+- The app sleeps after 15 minutes of inactivity on Render's free tier (wakes on first request)
