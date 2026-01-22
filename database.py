@@ -1,26 +1,36 @@
 import os
-import psycopg2
 from urllib.parse import urlparse
+
+# Try to import psycopg2, but don't fail if it's not installed (for local SQLite development)
+try:
+    import psycopg2
+    PSYCOPG2_AVAILABLE = True
+except ImportError:
+    PSYCOPG2_AVAILABLE = False
 
 def get_db_connection():
     """Get database connection from environment variable or use SQLite as fallback"""
     database_url = os.environ.get('DATABASE_URL')
     
-    if database_url:
-        # Parse PostgreSQL URL
-        result = urlparse(database_url)
-        conn = psycopg2.connect(
-            database=result.path[1:],  # Remove leading /
-            user=result.username,
-            password=result.password,
-            host=result.hostname,
-            port=result.port
-        )
-        return conn
-    else:
-        # Fallback to SQLite for local development
-        import sqlite3
-        return sqlite3.connect("properties.db")
+    if database_url and PSYCOPG2_AVAILABLE:
+        try:
+            # Parse PostgreSQL URL
+            result = urlparse(database_url)
+            conn = psycopg2.connect(
+                database=result.path[1:],  # Remove leading /
+                user=result.username,
+                password=result.password,
+                host=result.hostname,
+                port=result.port
+            )
+            return conn
+        except Exception as e:
+            print(f"Warning: Could not connect to PostgreSQL: {e}. Falling back to SQLite.")
+            # Fall through to SQLite
+    
+    # Fallback to SQLite for local development
+    import sqlite3
+    return sqlite3.connect("properties.db")
 
 
 def init_db():
