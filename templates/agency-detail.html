@@ -80,6 +80,8 @@
         .info-item {
             margin-bottom: 15px;
             font-size: 1.1em;
+            display: flex;
+            align-items: flex-start;
         }
         
         .info-label {
@@ -87,10 +89,13 @@
             color: #666;
             display: inline-block;
             width: 120px;
+            flex-shrink: 0;
         }
         
         .info-value {
             color: #333;
+            flex: 1;
+            word-wrap: break-word;
         }
         
         .stats-grid {
