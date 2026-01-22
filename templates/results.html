@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Results</title>
+</head>
+<body>
+    <h1>Scraped Companies</h1>
+
+    <table border="1">
+        <tr>
+            <th>Name</th>
+            <th>Agents</th>
+            <th>For Sale</th>
+            <th>For Rent</th>
+        </tr>
+
+        {% for c in companies %}
+        <tr>
+            <td>{{ c[1] }}</td>
+            <td>{{ c[2] }}</td>
+            <td>{{ c[4] }}</td>
+            <td>{{ c[5] }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+
+    <a href="/">Back</a>
+</body>
+</html>
