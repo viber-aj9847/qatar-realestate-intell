@@ -15,11 +15,19 @@ progress_storage = {}
 
 init_db()
 # Clean up any existing duplicates on startup
-cleanup_duplicates()
+try:
+    cleanup_duplicates()
+except Exception as e:
+    print(f"Warning: Could not cleanup duplicates on startup: {e}")
 
 @app.after_request
 def after_request(response):
-    response.headers['Content-Type'] = 'text/html; charset=utf-8'
+    # Only set HTML content type if not already set (preserves JSON/CSV content types)
+    if 'Content-Type' not in response.headers:
+        response.headers['Content-Type'] = 'text/html; charset=utf-8'
+    elif response.headers['Content-Type'].startswith('text/html') and 'charset' not in response.headers['Content-Type']:
+        # Add charset to existing HTML content type if missing
+        response.headers['Content-Type'] = 'text/html; charset=utf-8'
     return response
 
 @app.route("/", methods=["GET", "POST"])
@@ -45,7 +53,8 @@ def index():
     # GET request — show page with existing data count
     try:
         existing_count = get_companies_count()
-    except:
+    except Exception as e:
+        print(f"Warning: Could not get companies count: {e}")
         existing_count = 0
     
     return render_template("index.html", existing_count=existing_count)
