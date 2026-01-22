@@ -190,7 +190,8 @@ def api_results():
     # Convert to list of dictionaries for JSON response
     results = []
     for company in companies:
-        results.append({
+        # Handle both old (7 columns) and new (9 columns) schema
+        result = {
             'id': company[0],
             'name': company[1],
             'total_agents': company[2],
@@ -198,7 +199,13 @@ def api_results():
             'for_sale': company[4],
             'for_rent': company[5],
             'logo': company[6]
-        })
+        }
+        # Add address and phone if available
+        if len(company) > 7:
+            result['address'] = company[7]
+        if len(company) > 8:
+            result['phone'] = company[8]
+        results.append(result)
     
     return jsonify(results)
 
