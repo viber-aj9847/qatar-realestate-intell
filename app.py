@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, redirect, make_response, jsonify, session, Response
 from propertyfinder import scrape_page
-from database import init_db, insert_companies, get_all_companies, get_companies_count, get_companies_for_csv, get_companies_filtered, cleanup_duplicates
+from database import init_db, insert_companies, get_all_companies, get_companies_count, get_companies_for_csv, get_companies_filtered, cleanup_duplicates, get_company_by_id
 import csv
 import io
 from datetime import datetime
@@ -201,6 +201,16 @@ def api_results():
         })
     
     return jsonify(results)
+
+
+@app.route("/agency/<int:agency_id>")
+def agency_detail(agency_id):
+    company = get_company_by_id(agency_id)
+    
+    if not company:
+        return "Agency not found", 404
+    
+    return render_template("agency-detail.html", company=company)
 
 
 @app.route("/results")

@@ -49,9 +49,20 @@ def init_db():
             super_agents INTEGER,
             for_sale INTEGER,
             for_rent INTEGER,
-            logo TEXT
+            logo TEXT,
+            address TEXT,
+            phone TEXT
         )
         """)
+        # Add columns if they don't exist (for existing databases)
+        try:
+            cur.execute("ALTER TABLE companies ADD COLUMN IF NOT EXISTS address TEXT")
+        except:
+            pass
+        try:
+            cur.execute("ALTER TABLE companies ADD COLUMN IF NOT EXISTS phone TEXT")
+        except:
+            pass
     else:
         # SQLite syntax
         cur.execute("""
@@ -62,9 +73,20 @@ def init_db():
             super_agents INTEGER,
             for_sale INTEGER,
             for_rent INTEGER,
-            logo TEXT
+            logo TEXT,
+            address TEXT,
+            phone TEXT
         )
         """)
+        # Add columns if they don't exist (for existing databases)
+        try:
+            cur.execute("ALTER TABLE companies ADD COLUMN address TEXT")
+        except:
+            pass
+        try:
+            cur.execute("ALTER TABLE companies ADD COLUMN phone TEXT")
+        except:
+            pass
 
     conn.commit()
     cur.close()
@@ -90,36 +112,40 @@ def insert_companies(companies):
         
         existing = cur.fetchone()
         
+        # Get address and phone if available, otherwise None
+        address = c.get("address", None)
+        phone = c.get("phone", None)
+        
         if existing:
             # Update existing record with latest data
             if is_postgres:
                 cur.execute("""
                 UPDATE companies 
-                SET total_agents = %s, super_agents = %s, for_sale = %s, for_rent = %s, logo = %s
+                SET total_agents = %s, super_agents = %s, for_sale = %s, for_rent = %s, logo = %s, address = %s, phone = %s
                 WHERE LOWER(TRIM(name)) = LOWER(%s)
                 """, (
                     c["total_agents"], c["super_agents"],
                     c["for_sale"], c["for_rent"], c["logo"],
-                    company_name
+                    address, phone, company_name
                 ))
             else:
                 cur.execute("""
                 UPDATE companies 
-                SET total_agents = ?, super_agents = ?, for_sale = ?, for_rent = ?, logo = ?
+                SET total_agents = ?, super_agents = ?, for_sale = ?, for_rent = ?, logo = ?, address = ?, phone = ?
                 WHERE LOWER(TRIM(name)) = LOWER(?)
                 """, (
                     c["total_agents"], c["super_agents"],
                     c["for_sale"], c["for_rent"], c["logo"],
-                    company_name
+                    address, phone, company_name
                 ))
         else:
             # Insert new record
             cur.execute(f"""
-            INSERT INTO companies (name, total_agents, super_agents, for_sale, for_rent, logo)
-            VALUES ({param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder})
+            INSERT INTO companies (name, total_agents, super_agents, for_sale, for_rent, logo, address, phone)
+            VALUES ({param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder}, {param_placeholder})
             """, (
                 company_name, c["total_agents"], c["super_agents"],
-                c["for_sale"], c["for_rent"], c["logo"]
+                c["for_sale"], c["for_rent"], c["logo"], address, phone
             ))
 
     conn.commit()
@@ -161,6 +187,36 @@ def get_companies_for_csv():
     cur.close()
     conn.close()
     return rows
+
+
+def get_company_by_id(company_id):
+    """Get a single company by ID"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    is_postgres = hasattr(conn, 'server_version')
+    param_placeholder = '%s' if is_postgres else '?'
+    
+    cur.execute(f"SELECT * FROM companies WHERE id = {param_placeholder}", (company_id,))
+    company = cur.fetchone()
+    
+    cur.close()
+    conn.close()
+    
+    if company:
+        # Handle both old (7 columns) and new (9 columns) schema
+        return {
+            'id': company[0],
+            'name': company[1],
+            'total_agents': company[2],
+            'super_agents': company[3],
+            'for_sale': company[4],
+            'for_rent': company[5],
+            'logo': company[6],
+            'address': company[7] if len(company) > 7 else None,
+            'phone': company[8] if len(company) > 8 else None
+        }
+    return None
 
 
 def cleanup_duplicates():

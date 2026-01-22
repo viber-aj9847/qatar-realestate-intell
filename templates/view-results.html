@@ -178,6 +178,7 @@
             border-color: #4CAF50;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
             transform: translateY(-2px);
+            cursor: pointer;
         }
         
         .company-logo {
@@ -394,7 +395,7 @@
             
             companies.forEach(company => {
                 html += `
-                    <div class="company-card">
+                    <div class="company-card" onclick="window.location.href='/agency/${company.id}'" style="cursor: pointer;">
                         ${company.logo ? `<img src="${company.logo}" alt="${company.name}" class="company-logo" onerror="this.style.display='none'">` : ''}
                         <div class="company-name">${formatCompanyName(company.name)}</div>
                         <div class="company-stats">
