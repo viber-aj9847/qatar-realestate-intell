@@ -48,6 +48,7 @@ def index():
             'total_pages': pages,
             'agencies_scraped': 0,
             'status': 'starting',
+            'current_action': 'Initializing scraper...',
             'all_results': []
         }
         
@@ -85,7 +86,8 @@ def api_scrape():
             'status': 'complete',
             'current_page': progress_data['total_pages'],
             'total_pages': progress_data['total_pages'],
-            'agencies_scraped': progress_data['agencies_scraped']
+            'agencies_scraped': progress_data['agencies_scraped'],
+            'current_action': progress_data.get('current_action', 'Complete!')
         })
     
     # If not started, start scraping in background
@@ -100,7 +102,8 @@ def api_scrape():
         'status': progress_data['status'],
         'current_page': progress_data['current_page'],
         'total_pages': progress_data['total_pages'],
-        'agencies_scraped': progress_data['agencies_scraped']
+        'agencies_scraped': progress_data['agencies_scraped'],
+        'current_action': progress_data.get('current_action', 'Processing...')
     })
 
 
@@ -112,6 +115,7 @@ def scrape_all_pages(session_id):
     
     try:
         for page in range(1, total_pages + 1):
+            progress_data['current_action'] = f'Fetching page {page} of {total_pages}...'
             print(f"Scraping page {page}...")
             results = scrape_page(page)
             all_results.extend(results)
@@ -120,12 +124,15 @@ def scrape_all_pages(session_id):
             progress_data['agencies_scraped'] = len(all_results)
             progress_data['status'] = 'in_progress'
             progress_data['all_results'] = all_results
+            progress_data['current_action'] = f'Processed page {page} - Found {len(results)} agencies'
             
             time.sleep(0.5)  # Small delay for progress visibility
         
         # Insert all results to database
+        progress_data['current_action'] = f'Saving {len(all_results)} agencies to database...'
         insert_companies(all_results)
         progress_data['status'] = 'complete'
+        progress_data['current_action'] = 'Scraping complete!'
         
     except Exception as e:
         print(f"Error during scraping: {e}")
