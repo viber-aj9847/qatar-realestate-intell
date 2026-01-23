@@ -16,22 +16,41 @@ def get_db_connection():
         try:
             # Parse PostgreSQL URL
             result = urlparse(database_url)
-            conn = psycopg2.connect(
-                database=result.path[1:],  # Remove leading /
-                user=result.username,
-                password=result.password,
-                host=result.hostname,
-                port=result.port
-            )
+            
+            # Build connection parameters
+            conn_params = {
+                'database': result.path[1:] if result.path and result.path.startswith('/') else (result.path or ''),
+                'user': result.username,
+                'password': result.password,
+                'host': result.hostname,
+            }
+            
+            # Add port if specified, otherwise use default 5432
+            if result.port:
+                conn_params['port'] = result.port
+            else:
+                conn_params['port'] = 5432
+            
+            # Render PostgreSQL requires SSL
+            conn_params['sslmode'] = 'require'
+            
+            print(f"Attempting PostgreSQL connection to: {result.hostname}:{conn_params['port']}/{conn_params['database']}")
+            
+            conn = psycopg2.connect(**conn_params)
+            
             # Test the connection
             cur = conn.cursor()
             cur.execute("SELECT 1")
             cur.close()
-            db_name = result.path[1:] if result.path else "unknown"
+            db_name = result.path[1:] if result.path and result.path.startswith('/') else (result.path or "unknown")
             print(f"✓ Connected to PostgreSQL database: {db_name}")
             return conn
         except Exception as e:
             print(f"✗ ERROR: Could not connect to PostgreSQL: {e}")
+            print(f"  Error type: {type(e).__name__}")
+            import traceback
+            print(f"  Full traceback:")
+            traceback.print_exc()
             if database_url:
                 # Show partial URL for debugging (hide password)
                 safe_url = database_url.split('@')[-1] if '@' in database_url else database_url[:50]
