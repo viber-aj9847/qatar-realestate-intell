@@ -12,6 +12,16 @@ def get_db_connection():
     """Get database connection from environment variable or use SQLite as fallback"""
     database_url = os.environ.get('DATABASE_URL')
     
+    # Diagnostic logging
+    print(f"DEBUG: DATABASE_URL is set: {bool(database_url)}")
+    print(f"DEBUG: PSYCOPG2_AVAILABLE: {PSYCOPG2_AVAILABLE}")
+    if database_url:
+        # Show partial URL (hide password)
+        safe_url = database_url.split('@')[-1] if '@' in database_url else database_url[:50]
+        print(f"DEBUG: DATABASE_URL host: {safe_url}")
+    else:
+        print("DEBUG: DATABASE_URL is NOT set in environment variables!")
+    
     if database_url and PSYCOPG2_AVAILABLE:
         # Try method 1: Direct connection string with SSL (most reliable for Render)
         try:
