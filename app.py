@@ -53,8 +53,11 @@ def index():
     # GET request — show page with existing data count
     try:
         existing_count = get_companies_count()
+        print(f"✓ Main page: Found {existing_count} companies in database")
     except Exception as e:
-        print(f"Warning: Could not get companies count: {e}")
+        print(f"✗ ERROR: Could not get companies count on main page: {e}")
+        print(f"  This might indicate a database connection problem!")
+        print(f"  Check Render logs and verify DATABASE_URL is set correctly.")
         existing_count = 0
     
     return render_template("index.html", existing_count=existing_count)

@@ -23,13 +23,26 @@ def get_db_connection():
                 host=result.hostname,
                 port=result.port
             )
+            # Test the connection
+            cur = conn.cursor()
+            cur.execute("SELECT 1")
+            cur.close()
+            db_name = result.path[1:] if result.path else "unknown"
+            print(f"✓ Connected to PostgreSQL database: {db_name}")
             return conn
         except Exception as e:
-            print(f"Warning: Could not connect to PostgreSQL: {e}. Falling back to SQLite.")
+            print(f"✗ ERROR: Could not connect to PostgreSQL: {e}")
+            if database_url:
+                # Show partial URL for debugging (hide password)
+                safe_url = database_url.split('@')[-1] if '@' in database_url else database_url[:50]
+                print(f"  DATABASE_URL host: {safe_url}")
+            print("  Falling back to SQLite (this will create a NEW empty database!)")
             # Fall through to SQLite
     
     # Fallback to SQLite for local development
     import sqlite3
+    print("⚠ WARNING: Using SQLite database (local development mode)")
+    print("  On Render, this means DATABASE_URL is not set or PostgreSQL connection failed!")
     return sqlite3.connect("properties.db")
 
 
@@ -39,6 +52,12 @@ def init_db():
 
     # Check if using PostgreSQL or SQLite
     is_postgres = hasattr(conn, 'server_version')
+    
+    if is_postgres:
+        print("✓ Initializing PostgreSQL database...")
+    else:
+        print("⚠ WARNING: Initializing SQLite database (local dev mode)")
+        print("  On Render, this means PostgreSQL connection failed!")
     
     if is_postgres:
         cur.execute("""
@@ -166,15 +185,27 @@ def get_all_companies():
 
 
 def get_companies_count():
-    conn = get_db_connection()
-    cur = conn.cursor()
-
-    cur.execute("SELECT COUNT(*) FROM companies")
-    count = cur.fetchone()[0]
-
-    cur.close()
-    conn.close()
-    return count
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # Check if we're using PostgreSQL
+        is_postgres = hasattr(conn, 'server_version')
+        if is_postgres:
+            print("✓ Querying PostgreSQL for company count")
+        else:
+            print("⚠ WARNING: Using SQLite - data may not persist on Render!")
+        
+        cur.execute("SELECT COUNT(*) FROM companies")
+        count = cur.fetchone()[0]
+        
+        cur.close()
+        conn.close()
+        print(f"✓ Found {count} companies in database")
+        return count
+    except Exception as e:
+        print(f"✗ ERROR in get_companies_count(): {e}")
+        raise  # Re-raise so the caller knows something went wrong
 
 
 def get_companies_for_csv():
