@@ -13,50 +13,80 @@ def get_db_connection():
     database_url = os.environ.get('DATABASE_URL')
     
     if database_url and PSYCOPG2_AVAILABLE:
+        # Try method 1: Direct connection string with SSL (most reliable for Render)
         try:
-            # Parse PostgreSQL URL
-            result = urlparse(database_url)
-            
-            # Build connection parameters
-            conn_params = {
-                'database': result.path[1:] if result.path and result.path.startswith('/') else (result.path or ''),
-                'user': result.username,
-                'password': result.password,
-                'host': result.hostname,
-            }
-            
-            # Add port if specified, otherwise use default 5432
-            if result.port:
-                conn_params['port'] = result.port
+            print("Attempting PostgreSQL connection (method 1: direct URL with SSL)...")
+            # Add SSL mode to connection string if not present
+            if 'sslmode=' not in database_url:
+                # Add sslmode parameter to the connection string
+                if '?' in database_url:
+                    conn_url = database_url + '&sslmode=require'
+                else:
+                    conn_url = database_url + '?sslmode=require'
             else:
-                conn_params['port'] = 5432
+                conn_url = database_url
             
-            # Render PostgreSQL requires SSL
-            conn_params['sslmode'] = 'require'
-            
-            print(f"Attempting PostgreSQL connection to: {result.hostname}:{conn_params['port']}/{conn_params['database']}")
-            
-            conn = psycopg2.connect(**conn_params)
+            conn = psycopg2.connect(conn_url)
             
             # Test the connection
             cur = conn.cursor()
             cur.execute("SELECT 1")
             cur.close()
+            
+            # Extract database name for logging
+            result = urlparse(database_url)
             db_name = result.path[1:] if result.path and result.path.startswith('/') else (result.path or "unknown")
             print(f"✓ Connected to PostgreSQL database: {db_name}")
             return conn
-        except Exception as e:
-            print(f"✗ ERROR: Could not connect to PostgreSQL: {e}")
-            print(f"  Error type: {type(e).__name__}")
-            import traceback
-            print(f"  Full traceback:")
-            traceback.print_exc()
-            if database_url:
-                # Show partial URL for debugging (hide password)
-                safe_url = database_url.split('@')[-1] if '@' in database_url else database_url[:50]
-                print(f"  DATABASE_URL host: {safe_url}")
-            print("  Falling back to SQLite (this will create a NEW empty database!)")
-            # Fall through to SQLite
+        except Exception as e1:
+            print(f"✗ Method 1 failed: {e1}")
+            
+            # Try method 2: Parsed connection with SSL
+            try:
+                print("Attempting PostgreSQL connection (method 2: parsed parameters with SSL)...")
+                result = urlparse(database_url)
+                
+                # Build connection parameters
+                conn_params = {
+                    'database': result.path[1:] if result.path and result.path.startswith('/') else (result.path or ''),
+                    'user': result.username,
+                    'password': result.password,
+                    'host': result.hostname,
+                }
+                
+                # Add port if specified, otherwise use default 5432
+                if result.port:
+                    conn_params['port'] = result.port
+                else:
+                    conn_params['port'] = 5432
+                
+                # Render PostgreSQL requires SSL
+                conn_params['sslmode'] = 'require'
+                
+                print(f"  Connecting to: {result.hostname}:{conn_params['port']}/{conn_params['database']}")
+                
+                conn = psycopg2.connect(**conn_params)
+                
+                # Test the connection
+                cur = conn.cursor()
+                cur.execute("SELECT 1")
+                cur.close()
+                
+                db_name = result.path[1:] if result.path and result.path.startswith('/') else (result.path or "unknown")
+                print(f"✓ Connected to PostgreSQL database: {db_name}")
+                return conn
+            except Exception as e2:
+                print(f"✗ Method 2 also failed: {e2}")
+                print(f"  Error type: {type(e2).__name__}")
+                import traceback
+                print(f"  Full traceback:")
+                traceback.print_exc()
+                if database_url:
+                    # Show partial URL for debugging (hide password)
+                    safe_url = database_url.split('@')[-1] if '@' in database_url else database_url[:50]
+                    print(f"  DATABASE_URL host: {safe_url}")
+                print("  Falling back to SQLite (this will create a NEW empty database!)")
+                # Fall through to SQLite
     
     # Fallback to SQLite for local development
     import sqlite3
