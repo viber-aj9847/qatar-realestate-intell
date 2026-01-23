@@ -6,9 +6,12 @@ import io
 from datetime import datetime
 import threading
 import time
+import os
 
 app = Flask(__name__)
-app.secret_key = 'your-secret-key-change-this-in-production'
+# Use environment variable for secret key (set in Render dashboard)
+# Falls back to a default for local development only
+app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 
 # In-memory storage for progress tracking
 progress_storage = {}
