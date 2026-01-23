@@ -5,8 +5,13 @@ from urllib.parse import urlparse
 try:
     import psycopg2
     PSYCOPG2_AVAILABLE = True
-except ImportError:
+    print("✓ psycopg2 successfully imported")
+except ImportError as e:
     PSYCOPG2_AVAILABLE = False
+    print(f"✗ ERROR: psycopg2 import failed: {e}")
+    print(f"  This means PostgreSQL connections will not work!")
+    print(f"  Check if psycopg2-binary is in requirements.txt and installed.")
+    print(f"  Error details: {type(e).__name__}: {str(e)}")
 
 def get_db_connection():
     """Get database connection from environment variable or use SQLite as fallback"""
