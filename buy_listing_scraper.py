@@ -314,8 +314,8 @@ def run_buy_listing_scrape(session_id, days_back, progress_storage):
             progress_data['total_properties_for_sale'] = total_properties_for_sale
             progress_data['current_action'] = 'Sorting by Newest...'
 
-            # Try URL-based sort first (avoids fragile click/timeout); fallback to click if needed
-            sort_url = url + '?sort=date_created_desc'
+            # Try URL-based sort first (avoids fragile click/timeout); nd = Newest per Property Finder filterChoices
+            sort_url = url + '?sort=nd'
             try:
                 page.goto(sort_url, wait_until='networkidle', timeout=60000)
                 time.sleep(1.5)
@@ -382,15 +382,19 @@ def run_buy_listing_scrape(session_id, days_back, progress_storage):
                 if should_stop:
                     break
 
-                # Property Finder QA: data-testid="pagination-page-next-link" for next page
+                # Check if next page exists; navigate explicitly with sort preserved (?sort=nd&page=N)
                 next_link = page.locator('[data-testid="pagination-page-next-link"]').first
                 if not next_link.count():
                     next_link = page.locator('a[href*="page="]:has-text("Next"), [aria-label="Go to next page"]').first
                 if not next_link.count():
                     break
-                next_link.click()
-                time.sleep(2)
                 page_num += 1
+                next_page_url = url + f'?sort=nd&page={page_num}'
+                try:
+                    page.goto(next_page_url, wait_until='networkidle', timeout=60000)
+                except Exception:
+                    break
+                time.sleep(2)
 
         finally:
             browser.close()
