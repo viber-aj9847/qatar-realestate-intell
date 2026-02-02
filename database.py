@@ -14,21 +14,22 @@ except ImportError as e:
     print(f"  Error details: {type(e).__name__}: {str(e)}")
 
 def get_db_connection():
-    """Get database connection from environment variable or use SQLite as fallback"""
-    database_url = os.environ.get('DATABASE_URL')
+    """Get database connection from environment variable or use SQLite as fallback.
+    Supports DATABASE_URL (Render, Heroku, etc.) or POSTGRESQL_URI (Aiven)."""
+    database_url = os.environ.get('DATABASE_URL') or os.environ.get('POSTGRESQL_URI')
     
     # Diagnostic logging
-    print(f"DEBUG: DATABASE_URL is set: {bool(database_url)}")
+    print(f"DEBUG: DATABASE_URL/POSTGRESQL_URI is set: {bool(database_url)}")
     print(f"DEBUG: PSYCOPG2_AVAILABLE: {PSYCOPG2_AVAILABLE}")
     if database_url:
         # Show partial URL (hide password)
         safe_url = database_url.split('@')[-1] if '@' in database_url else database_url[:50]
         print(f"DEBUG: DATABASE_URL host: {safe_url}")
     else:
-        print("DEBUG: DATABASE_URL is NOT set in environment variables!")
+        print("DEBUG: DATABASE_URL/POSTGRESQL_URI is NOT set in environment variables!")
     
     if database_url and PSYCOPG2_AVAILABLE:
-        # Try method 1: Direct connection string with SSL (most reliable for Render)
+        # Try method 1: Direct connection string with SSL (works with Aiven, Render, etc.)
         try:
             print("Attempting PostgreSQL connection (method 1: direct URL with SSL)...")
             # Add SSL mode to connection string if not present
@@ -75,7 +76,7 @@ def get_db_connection():
                 else:
                     conn_params['port'] = 5432
                 
-                # Render PostgreSQL requires SSL
+                # Aiven, Render, and most cloud PostgreSQL require SSL
                 conn_params['sslmode'] = 'require'
                 
                 print(f"  Connecting to: {result.hostname}:{conn_params['port']}/{conn_params['database']}")
@@ -99,14 +100,14 @@ def get_db_connection():
                 if database_url:
                     # Show partial URL for debugging (hide password)
                     safe_url = database_url.split('@')[-1] if '@' in database_url else database_url[:50]
-                    print(f"  DATABASE_URL host: {safe_url}")
+                    print(f"  Connection URI host: {safe_url}")
                 print("  Falling back to SQLite (this will create a NEW empty database!)")
                 # Fall through to SQLite
     
     # Fallback to SQLite for local development
     import sqlite3
     print("⚠ WARNING: Using SQLite database (local development mode)")
-    print("  On Render, this means DATABASE_URL is not set or PostgreSQL connection failed!")
+    print("  In production, set DATABASE_URL or POSTGRESQL_URI (Aiven) to use PostgreSQL!")
     return sqlite3.connect("properties.db")
 
 
@@ -121,7 +122,7 @@ def init_db():
         print("✓ Initializing PostgreSQL database...")
     else:
         print("⚠ WARNING: Initializing SQLite database (local dev mode)")
-        print("  On Render, this means PostgreSQL connection failed!")
+        print("  Set DATABASE_URL or POSTGRESQL_URI for production PostgreSQL (Aiven/Render/etc.)")
     
     if is_postgres:
         cur.execute("""
@@ -169,6 +170,197 @@ def init_db():
         try:
             cur.execute("ALTER TABLE companies ADD COLUMN phone TEXT")
         except:
+            pass
+
+    # Buy listings and scrape runs (PostgreSQL)
+    if is_postgres:
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS buy_listing_scrape_runs (
+            id SERIAL PRIMARY KEY,
+            scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            days_back INTEGER NOT NULL,
+            total_properties_for_sale INTEGER,
+            listings_scraped_count INTEGER NOT NULL DEFAULT 0
+        )
+        """)
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS buy_listings (
+            id SERIAL PRIMARY KEY,
+            property_id TEXT,
+            reference TEXT,
+            title TEXT,
+            property_type TEXT,
+            offering_type TEXT,
+            description TEXT,
+            price_value NUMERIC,
+            price_currency TEXT,
+            price_is_hidden BOOLEAN,
+            price_period TEXT,
+            property_video_url TEXT,
+            property_has_view_360 BOOLEAN,
+            size_value NUMERIC,
+            size_unit TEXT,
+            bedrooms INTEGER,
+            bathrooms INTEGER,
+            furnished TEXT,
+            completion_status TEXT,
+            location_id TEXT,
+            location_path TEXT,
+            location_type TEXT,
+            location_full_name TEXT,
+            location_name TEXT,
+            location_lat NUMERIC,
+            location_lon NUMERIC,
+            amenities TEXT,
+            is_available BOOLEAN,
+            is_new_insert BOOLEAN,
+            listed_date TEXT,
+            live_viewing TEXT,
+            qs TEXT,
+            rsp TEXT,
+            rss TEXT,
+            property_is_available BOOLEAN,
+            property_is_verified BOOLEAN,
+            property_is_direct_from_developer BOOLEAN,
+            property_is_new_construction BOOLEAN,
+            property_is_featured BOOLEAN,
+            property_is_premium BOOLEAN,
+            property_is_exclusive BOOLEAN,
+            property_is_broker_project_property BOOLEAN,
+            property_is_smart_ad BOOLEAN,
+            property_is_spotlight_listing BOOLEAN,
+            property_is_claimed_by_agent BOOLEAN,
+            property_is_under_offer_by_competitor BOOLEAN,
+            property_is_community_expert BOOLEAN,
+            property_is_cts BOOLEAN,
+            agent_is_super_agent BOOLEAN,
+            broker_name TEXT,
+            listing_type TEXT,
+            category_id TEXT,
+            property_images TEXT,
+            property_type_id TEXT,
+            property_utilities_price_type TEXT,
+            contact_options TEXT,
+            agent_id TEXT,
+            agent_user_id TEXT,
+            agent_name TEXT,
+            agent_image TEXT,
+            agent_languages TEXT,
+            broker_logo TEXT,
+            agent_email TEXT,
+            broker_id TEXT,
+            broker_email TEXT,
+            broker_phone TEXT,
+            broker_address TEXT,
+            scrape_run_id INTEGER REFERENCES buy_listing_scrape_runs(id)
+        )
+        """)
+        try:
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_buy_listings_property_id ON buy_listings(property_id)")
+        except Exception:
+            pass
+        try:
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_buy_listings_listed_date ON buy_listings(listed_date)")
+        except Exception:
+            pass
+        try:
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_buy_listings_broker_id ON buy_listings(broker_id)")
+        except Exception:
+            pass
+    else:
+        # SQLite: buy_listing_scrape_runs and buy_listings
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS buy_listing_scrape_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            days_back INTEGER NOT NULL,
+            total_properties_for_sale INTEGER,
+            listings_scraped_count INTEGER NOT NULL DEFAULT 0
+        )
+        """)
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS buy_listings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            property_id TEXT,
+            reference TEXT,
+            title TEXT,
+            property_type TEXT,
+            offering_type TEXT,
+            description TEXT,
+            price_value REAL,
+            price_currency TEXT,
+            price_is_hidden INTEGER,
+            price_period TEXT,
+            property_video_url TEXT,
+            property_has_view_360 INTEGER,
+            size_value REAL,
+            size_unit TEXT,
+            bedrooms INTEGER,
+            bathrooms INTEGER,
+            furnished TEXT,
+            completion_status TEXT,
+            location_id TEXT,
+            location_path TEXT,
+            location_type TEXT,
+            location_full_name TEXT,
+            location_name TEXT,
+            location_lat REAL,
+            location_lon REAL,
+            amenities TEXT,
+            is_available INTEGER,
+            is_new_insert INTEGER,
+            listed_date TEXT,
+            live_viewing TEXT,
+            qs TEXT,
+            rsp TEXT,
+            rss TEXT,
+            property_is_available INTEGER,
+            property_is_verified INTEGER,
+            property_is_direct_from_developer INTEGER,
+            property_is_new_construction INTEGER,
+            property_is_featured INTEGER,
+            property_is_premium INTEGER,
+            property_is_exclusive INTEGER,
+            property_is_broker_project_property INTEGER,
+            property_is_smart_ad INTEGER,
+            property_is_spotlight_listing INTEGER,
+            property_is_claimed_by_agent INTEGER,
+            property_is_under_offer_by_competitor INTEGER,
+            property_is_community_expert INTEGER,
+            property_is_cts INTEGER,
+            agent_is_super_agent INTEGER,
+            broker_name TEXT,
+            listing_type TEXT,
+            category_id TEXT,
+            property_images TEXT,
+            property_type_id TEXT,
+            property_utilities_price_type TEXT,
+            contact_options TEXT,
+            agent_id TEXT,
+            agent_user_id TEXT,
+            agent_name TEXT,
+            agent_image TEXT,
+            agent_languages TEXT,
+            broker_logo TEXT,
+            agent_email TEXT,
+            broker_id TEXT,
+            broker_email TEXT,
+            broker_phone TEXT,
+            broker_address TEXT,
+            scrape_run_id INTEGER REFERENCES buy_listing_scrape_runs(id)
+        )
+        """)
+        try:
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_buy_listings_property_id ON buy_listings(property_id)")
+        except Exception:
+            pass
+        try:
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_buy_listings_listed_date ON buy_listings(listed_date)")
+        except Exception:
+            pass
+        try:
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_buy_listings_broker_id ON buy_listings(broker_id)")
+        except Exception:
             pass
 
     conn.commit()
@@ -258,7 +450,7 @@ def get_companies_count():
         if is_postgres:
             print("✓ Querying PostgreSQL for company count")
         else:
-            print("⚠ WARNING: Using SQLite - data may not persist on Render!")
+            print("⚠ WARNING: Using SQLite - data may not persist in production!")
         
         cur.execute("SELECT COUNT(*) FROM companies")
         count = cur.fetchone()[0]
@@ -418,3 +610,109 @@ def get_companies_filtered(filters):
     cur.close()
     conn.close()
     return rows
+
+
+# --- Buy listings ---
+
+BUY_LISTINGS_COLUMNS = [
+    'property_id', 'reference', 'title', 'property_type', 'offering_type', 'description',
+    'price_value', 'price_currency', 'price_is_hidden', 'price_period',
+    'property_video_url', 'property_has_view_360', 'size_value', 'size_unit',
+    'bedrooms', 'bathrooms', 'furnished', 'completion_status',
+    'location_id', 'location_path', 'location_type', 'location_full_name', 'location_name',
+    'location_lat', 'location_lon', 'amenities', 'is_available', 'is_new_insert',
+    'listed_date', 'live_viewing', 'qs', 'rsp', 'rss',
+    'property_is_available', 'property_is_verified', 'property_is_direct_from_developer',
+    'property_is_new_construction', 'property_is_featured', 'property_is_premium',
+    'property_is_exclusive', 'property_is_broker_project_property', 'property_is_smart_ad',
+    'property_is_spotlight_listing', 'property_is_claimed_by_agent',
+    'property_is_under_offer_by_competitor', 'property_is_community_expert', 'property_is_cts',
+    'agent_is_super_agent', 'broker_name', 'listing_type', 'category_id', 'property_images',
+    'property_type_id', 'property_utilities_price_type', 'contact_options',
+    'agent_id', 'agent_user_id', 'agent_name', 'agent_image', 'agent_languages',
+    'broker_logo', 'agent_email', 'broker_id', 'broker_email', 'broker_phone', 'broker_address',
+    'scrape_run_id'
+]
+
+
+def insert_buy_scrape_run(total_properties_for_sale, days_back, listings_count):
+    """Insert a scrape run record and return its id."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    is_postgres = hasattr(conn, 'server_version')
+    param = '%s' if is_postgres else '?'
+    if is_postgres:
+        cur.execute(
+            "INSERT INTO buy_listing_scrape_runs (total_properties_for_sale, days_back, listings_scraped_count) VALUES (%s, %s, %s) RETURNING id",
+            (total_properties_for_sale, days_back, listings_count)
+        )
+        run_id = cur.fetchone()[0]
+    else:
+        cur.execute(
+            "INSERT INTO buy_listing_scrape_runs (total_properties_for_sale, days_back, listings_scraped_count) VALUES (?, ?, ?)",
+            (total_properties_for_sale, days_back, listings_count)
+        )
+        run_id = cur.lastrowid
+    conn.commit()
+    cur.close()
+    conn.close()
+    return run_id
+
+
+def insert_buy_listings(listings_list, scrape_run_id):
+    """Insert buy listing records. Each item in listings_list is a dict with keys matching BUY_LISTINGS_COLUMNS (scrape_run_id is set here)."""
+    if not listings_list:
+        return
+    conn = get_db_connection()
+    cur = conn.cursor()
+    is_postgres = hasattr(conn, 'server_version')
+    param = '%s' if is_postgres else '?'
+    cols = BUY_LISTINGS_COLUMNS
+    placeholders = ', '.join([param] * len(cols))
+    columns_str = ', '.join(cols)
+    for row in listings_list:
+        values = [row.get(c) for c in cols]
+        # Ensure scrape_run_id is set
+        values[-1] = scrape_run_id
+        cur.execute(
+            f"INSERT INTO buy_listings ({columns_str}) VALUES ({placeholders})",
+            values
+        )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def get_buy_listings_count():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) FROM buy_listings")
+    count = cur.fetchone()[0]
+    cur.close()
+    conn.close()
+    return count
+
+
+def get_latest_buy_scrape_run():
+    """Return the most recent scrape run: dict with id, scraped_at, days_back, total_properties_for_sale, listings_scraped_count."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    is_postgres = hasattr(conn, 'server_version')
+    cur.execute("""
+        SELECT id, scraped_at, days_back, total_properties_for_sale, listings_scraped_count
+        FROM buy_listing_scrape_runs
+        ORDER BY scraped_at DESC
+        LIMIT 1
+    """)
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    if not row:
+        return None
+    return {
+        'id': row[0],
+        'scraped_at': row[1],
+        'days_back': row[2],
+        'total_properties_for_sale': row[3],
+        'listings_scraped_count': row[4]
+    }

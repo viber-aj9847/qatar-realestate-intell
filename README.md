@@ -80,33 +80,36 @@ Render will automatically detect the push and redeploy your app (usually takes 1
 ### Local Development
 The app uses SQLite locally (no setup required). The database file `properties.db` will be created automatically.
 
-### Production (Render)
-The app uses PostgreSQL on Render for persistent data storage.
+### Production (Aiven PostgreSQL)
+The app uses PostgreSQL for persistent data storage in production. Aiven PostgreSQL is recommended.
 
-**To set up PostgreSQL on Render:**
+**To set up Aiven PostgreSQL:**
 
-1. **Create PostgreSQL Database:**
-   - Go to Render dashboard → "New +" → "PostgreSQL"
-   - Name: `qatar-property-db` (or your choice)
-   - Database: `qatar_property_db`
-   - Region: Same as your web service
-   - Plan: Free
-   - Click "Create Database"
+1. **Create Aiven PostgreSQL service:**
+   - Go to [Aiven Console](https://console.aiven.io/)
+   - Create a new "PostgreSQL" service
+   - Choose your plan and region
+   - Wait for the service to become available
 
-2. **Add Database URL to Web Service:**
-   - Go to your web service on Render
-   - Click "Environment" tab
-   - Add new environment variable:
+2. **Get the connection URI:**
+   - In your Aiven service overview, find **Connection URI** or **Service URI**
+   - Copy the URI (format: `postgres://user:password@host:port/database?sslmode=require`)
+
+3. **Set environment variable:**
+   - In your deployment platform (Render, Heroku, etc.), add:
      - Key: `DATABASE_URL`
-     - Value: Copy the "Internal Database URL" from your PostgreSQL service
-   - Save changes
+     - Value: Paste the Aiven connection URI
+   - Alternatively, Aiven provides `POSTGRESQL_URI` — the app supports both variable names
 
-3. **Redeploy:**
-   - Render will automatically redeploy when you push code
-   - The app will automatically use PostgreSQL when `DATABASE_URL` is set
+4. **Redeploy:**
+   - The app will connect to Aiven PostgreSQL on next deploy
+   - Tables are created automatically on first run
+
+### Production (Render PostgreSQL - alternative)
+Render also offers PostgreSQL. Add the "Internal Database URL" from your Render PostgreSQL service as `DATABASE_URL` in your web service's Environment tab.
 
 ## Notes
 
-- The app automatically uses PostgreSQL on Render (when `DATABASE_URL` is set) or SQLite locally
+- The app uses PostgreSQL when `DATABASE_URL` or `POSTGRESQL_URI` is set; otherwise SQLite locally
 - Data persists across redeploys with PostgreSQL
 - The app sleeps after 15 minutes of inactivity on Render's free tier (wakes on first request)

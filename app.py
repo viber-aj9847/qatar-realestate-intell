@@ -1,6 +1,11 @@
 from flask import Flask, render_template, request, redirect, make_response, jsonify, session, Response
 from propertyfinder import scrape_page
-from database import init_db, insert_companies, get_all_companies, get_companies_count, get_companies_for_csv, get_companies_filtered, cleanup_duplicates, get_company_by_id
+from buy_listing_scraper import run_buy_listing_scrape
+from database import (
+    init_db, insert_companies, get_all_companies, get_companies_count,
+    get_companies_for_csv, get_companies_filtered, cleanup_duplicates, get_company_by_id,
+    insert_buy_listings, insert_buy_scrape_run, get_buy_listings_count, get_latest_buy_scrape_run,
+)
 import csv
 import io
 from datetime import datetime
@@ -9,7 +14,7 @@ import time
 import os
 
 app = Flask(__name__)
-# Use environment variable for secret key (set in Render dashboard)
+# Use environment variable for secret key (set in production)
 # Falls back to a default for local development only
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 
@@ -42,8 +47,9 @@ def index():
         session['session_id'] = f"{time.time()}_{id(session)}"
         session_id = session['session_id']
         
-        # Initialize progress
+        # Initialize progress (agency scraper)
         progress_storage[session_id] = {
+            'scraper_type': 'agency',
             'current_page': 0,
             'total_pages': pages,
             'agencies_scraped': 0,
@@ -61,15 +67,36 @@ def index():
     except Exception as e:
         print(f"✗ ERROR: Could not get companies count on main page: {e}")
         print(f"  This might indicate a database connection problem!")
-        print(f"  Check Render logs and verify DATABASE_URL is set correctly.")
+        print(f"  Check logs and verify DATABASE_URL or POSTGRESQL_URI is set correctly.")
         existing_count = 0
     
     return render_template("index.html", existing_count=existing_count)
 
 
+@app.route("/start-buy-scraper", methods=["POST"])
+def start_buy_scraper():
+    days_back = int(request.form.get("days_back", 2))
+    session['total_pages'] = 0  # not used for buy
+    session['session_id'] = f"buy_{time.time()}_{id(session)}"
+    session['scraper_type'] = 'buy'
+    session_id = session['session_id']
+    
+    progress_storage[session_id] = {
+        'scraper_type': 'buy',
+        'days_back': days_back,
+        'listings_scraped': 0,
+        'total_properties_for_sale': None,
+        'current_page': 0,
+        'status': 'starting',
+        'current_action': 'Initializing buy listing scraper...',
+    }
+    return redirect("/progress?type=buy")
+
+
 @app.route("/progress")
 def progress():
-    return render_template("progress.html")
+    scraper_type = request.args.get('type', session.get('scraper_type', 'agency'))
+    return render_template("progress.html", scraper_type=scraper_type)
 
 
 @app.route("/api/scrape", methods=["POST"])
@@ -140,10 +167,78 @@ def scrape_all_pages(session_id):
         progress_data['error'] = str(e)
 
 
+@app.route("/api/scrape-buy", methods=["POST"])
+def api_scrape_buy():
+    session_id = session.get('session_id')
+    if not session_id or session_id not in progress_storage:
+        return jsonify({'error': 'No buy scraping session found'}), 400
+    
+    progress_data = progress_storage[session_id]
+    if progress_data.get('scraper_type') != 'buy':
+        return jsonify({'error': 'Not a buy scraper session'}), 400
+    
+    if progress_data['status'] == 'complete':
+        return jsonify({
+            'status': 'complete',
+            'listings_scraped': progress_data.get('listings_scraped', 0),
+            'total_properties_for_sale': progress_data.get('total_properties_for_sale'),
+            'current_action': progress_data.get('current_action', 'Complete!')
+        })
+    
+    if progress_data['status'] == 'starting':
+        progress_data['status'] = 'in_progress'
+        days_back = progress_data['days_back']
+        thread = threading.Thread(target=scrape_buy_listings, args=(session_id,))
+        thread.daemon = True
+        thread.start()
+    
+    return jsonify({
+        'status': progress_data['status'],
+        'listings_scraped': progress_data.get('listings_scraped', 0),
+        'total_properties_for_sale': progress_data.get('total_properties_for_sale'),
+        'current_action': progress_data.get('current_action', 'Processing...')
+    })
+
+
+def scrape_buy_listings(session_id):
+    """Background: run buy listing scraper, then save to DB."""
+    progress_data = progress_storage[session_id]
+    days_back = progress_data['days_back']
+    try:
+        listings, total_properties_for_sale = run_buy_listing_scrape(session_id, days_back, progress_storage)
+        progress_data['total_properties_for_sale'] = total_properties_for_sale
+        progress_data['listings_scraped'] = len(listings)
+        progress_data['current_action'] = f'Saving {len(listings)} listings to database...'
+        
+        run_id = insert_buy_scrape_run(
+            total_properties_for_sale or 0,
+            days_back,
+            len(listings)
+        )
+        insert_buy_listings(listings, run_id)
+        
+        progress_data['status'] = 'complete'
+        progress_data['current_action'] = 'Scraping complete!'
+    except Exception as e:
+        print(f"Error during buy listing scraping: {e}")
+        import traceback
+        traceback.print_exc()
+        progress_data['status'] = 'error'
+        progress_data['error'] = str(e)
+
+
 @app.route("/summary")
 def summary():
     count = get_companies_count()
     return render_template("summary.html", count=count)
+
+
+@app.route("/summary-buy")
+def summary_buy():
+    run = get_latest_buy_scrape_run()
+    count = run.get('listings_scraped_count', 0) if run else get_buy_listings_count()
+    total_for_sale = run.get('total_properties_for_sale') if run else None
+    return render_template("summary-buy.html", count=count, total_properties_for_sale=total_for_sale)
 
 
 @app.route("/export-csv")
@@ -176,6 +271,12 @@ def export_csv():
 @app.route("/view-results")
 def view_results():
     return render_template("view-results.html")
+
+
+@app.route("/view-buy-results")
+def view_buy_results():
+    count = get_buy_listings_count()
+    return render_template("view-buy-results.html", count=count)
 
 
 @app.route("/api/results")
