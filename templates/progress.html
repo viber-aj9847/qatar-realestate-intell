@@ -98,23 +98,41 @@
 </head>
 <body>
     <div class="progress-container">
-        <h1>Scraping in Progress</h1>
-        <div class="progress-info">
+        <h1>{% if scraper_type == 'buy' %}Buy Listing Scrape in Progress{% else %}Scraping in Progress{% endif %}</h1>
+        <div class="progress-info" id="progress-info-agency">
             <div>Scraping page <span id="current-page">0</span> of <span id="total-pages">0</span></div>
+        </div>
+        <div class="progress-info" id="progress-info-buy" style="display: none;">
+            <div>Listings scraped: <span id="listings-count">0</span></div>
+            <div>Total properties for sale (this run): <span id="total-for-sale">—</span></div>
         </div>
         <div class="progress-bar-container">
             <div class="progress-bar" id="progress-bar">0%</div>
         </div>
-        <div class="agencies-count">
+        <div class="agencies-count" id="agencies-count-wrap">
             <span id="agencies-count">0</span> agencies scraped
+        </div>
+        <div class="agencies-count" id="listings-count-wrap" style="display: none;">
+            <span id="listings-count-big">0</span> listings scraped
         </div>
         <div class="loading-spinner"></div>
         <div class="current-action" id="current-action">Initializing...</div>
     </div>
 
     <script>
+        const scraperType = {{ scraper_type | tojson }};
+        const apiUrl = scraperType === 'buy' ? '/api/scrape-buy' : '/api/scrape';
+        const completeRedirect = scraperType === 'buy' ? '/summary-buy' : '/summary';
+
+        if (scraperType === 'buy') {
+            document.getElementById('progress-info-agency').style.display = 'none';
+            document.getElementById('progress-info-buy').style.display = 'block';
+            document.getElementById('agencies-count-wrap').style.display = 'none';
+            document.getElementById('listings-count-wrap').style.display = 'block';
+        }
+
         function updateProgress() {
-            fetch('/api/scrape', {
+            fetch(apiUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -122,35 +140,41 @@
             })
             .then(response => response.json())
             .then(data => {
-                const currentPage = data.current_page || 0;
-                const totalPages = data.total_pages || 1;
-                const agenciesScraped = data.agencies_scraped || 0;
                 const status = data.status;
                 const currentAction = data.current_action || 'Processing...';
-                
-                // Update display
-                document.getElementById('current-page').textContent = currentPage;
-                document.getElementById('total-pages').textContent = totalPages;
-                document.getElementById('agencies-count').textContent = agenciesScraped;
                 document.getElementById('current-action').textContent = currentAction;
-                
-                // Update progress bar
-                const percentage = totalPages > 0 ? (currentPage / totalPages) * 100 : 0;
-                const progressBar = document.getElementById('progress-bar');
-                progressBar.style.width = percentage + '%';
-                progressBar.textContent = Math.round(percentage) + '%';
-                
-                // Check if complete
+
+                if (scraperType === 'buy') {
+                    const listingsScraped = data.listings_scraped || 0;
+                    const totalForSale = data.total_properties_for_sale;
+                    document.getElementById('listings-count').textContent = listingsScraped;
+                    document.getElementById('listings-count-big').textContent = listingsScraped;
+                    document.getElementById('total-for-sale').textContent = totalForSale != null ? totalForSale.toLocaleString() : '—';
+                    document.getElementById('current-page').textContent = data.current_page || 0;
+                    document.getElementById('total-pages').textContent = '';
+                    document.getElementById('progress-bar').style.width = listingsScraped > 0 ? '100%' : '0%';
+                    document.getElementById('progress-bar').textContent = listingsScraped > 0 ? '…' : '0%';
+                } else {
+                    const currentPage = data.current_page || 0;
+                    const totalPages = data.total_pages || 1;
+                    const agenciesScraped = data.agencies_scraped || 0;
+                    document.getElementById('current-page').textContent = currentPage;
+                    document.getElementById('total-pages').textContent = totalPages;
+                    document.getElementById('agencies-count').textContent = agenciesScraped;
+                    const percentage = totalPages > 0 ? (currentPage / totalPages) * 100 : 0;
+                    const progressBar = document.getElementById('progress-bar');
+                    progressBar.style.width = percentage + '%';
+                    progressBar.textContent = Math.round(percentage) + '%';
+                }
+
                 if (status === 'complete') {
-                    // Redirect to summary page
                     setTimeout(() => {
-                        window.location.href = '/summary';
+                        window.location.href = completeRedirect;
                     }, 1000);
                 } else if (status === 'error') {
                     alert('An error occurred during scraping. Please try again.');
                     window.location.href = '/';
                 } else {
-                    // Continue polling
                     setTimeout(updateProgress, 500);
                 }
             })
@@ -159,8 +183,7 @@
                 setTimeout(updateProgress, 1000);
             });
         }
-        
-        // Start polling immediately
+
         updateProgress();
     </script>
 </body>

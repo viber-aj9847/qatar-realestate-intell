@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <title>Buy Listing Scrape Complete</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .summary-container {
+            background-color: white;
+            padding: 50px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 600px;
+            text-align: center;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+        }
+        
+        .count-display {
+            font-size: 3em;
+            color: #FF9800;
+            font-weight: bold;
+            margin: 30px 0 10px 0;
+        }
+        
+        .count-label {
+            font-size: 1.5em;
+            color: #666;
+            margin-bottom: 15px;
+        }
+        
+        .total-for-sale {
+            font-size: 1.2em;
+            color: #555;
+            margin-bottom: 40px;
+        }
+        
+        .total-for-sale strong {
+            color: #333;
+        }
+        
+        .action-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            margin-top: 40px;
+        }
+        
+        .action-button {
+            padding: 20px 40px;
+            font-size: 1.2em;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            text-decoration: none;
+            display: inline-block;
+            transition: all 0.3s;
+        }
+        
+        .button-view {
+            background-color: #FF9800;
+            color: white;
+        }
+        
+        .button-view:hover {
+            background-color: #F57C00;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+        
+        .back-link {
+            margin-top: 30px;
+            display: inline-block;
+            color: #666;
+            text-decoration: none;
+            font-size: 1em;
+        }
+        
+        .back-link:hover {
+            color: #333;
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="summary-container">
+        <h1>Buy Listing Scrape Complete!</h1>
+        <div class="count-display">{{ count }}</div>
+        <div class="count-label">listings captured</div>
+        {% if total_properties_for_sale is not none %}
+        <div class="total-for-sale">
+            Properties for sale in Qatar (stored): <strong>{{ total_properties_for_sale|int }}</strong>
+        </div>
+        {% endif %}
+        
+        <div class="action-buttons">
+            <a href="/view-buy-results" class="action-button button-view">View buy listings</a>
+        </div>
+        
+        <a href="/" class="back-link">← Back to Home</a>
+    </div>
+</body>
+</html>
