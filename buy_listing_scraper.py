@@ -312,25 +312,30 @@ def run_buy_listing_scrape(session_id, days_back, progress_storage):
                     pass
 
             progress_data['total_properties_for_sale'] = total_properties_for_sale
-            progress_data['current_action'] = 'Clicking Sort by Newest...'
+            progress_data['current_action'] = 'Sorting by Newest...'
 
-            # Property Finder QA: data-testid="filters-sort" opens dropdown; select "Newest"
-            sort_trigger = page.locator('[data-testid="filters-sort"]').first
-            if sort_trigger.count():
-                sort_trigger.click()
-                time.sleep(0.7)
-                # Option text may be "Newest" or "Date (newest first)" etc.
-                newest = page.locator('[role="option"]:has-text("Newest"), [data-testid*="sort"]:has-text("Newest"), button:has-text("Newest"), a:has-text("Newest")').first
-                if newest.count():
-                    newest.click()
-                    time.sleep(2)
-                else:
-                    # Try any element containing "Newest"
-                    page.get_by_text("Newest", exact=False).first.click()
-                    time.sleep(2)
-            else:
-                page.goto(url + '?sort=date_created_desc', wait_until='networkidle', timeout=60000)
+            # Try URL-based sort first (avoids fragile click/timeout); fallback to click if needed
+            sort_url = url + '?sort=date_created_desc'
+            try:
+                page.goto(sort_url, wait_until='networkidle', timeout=60000)
                 time.sleep(1.5)
+            except Exception:
+                # Fallback: try UI click (can timeout on Render if element not actionable)
+                try:
+                    sort_trigger = page.locator('[data-testid="filters-sort"]').first
+                    if sort_trigger.count():
+                        sort_trigger.click(timeout=10000)
+                        time.sleep(0.7)
+                        newest = page.locator('[role="option"]:has-text("Newest"), [data-testid*="sort"]:has-text("Newest"), button:has-text("Newest"), a:has-text("Newest")').first
+                        if newest.count():
+                            newest.click(timeout=10000)
+                        else:
+                            page.get_by_text("Newest", exact=False).first.click(timeout=10000)
+                        time.sleep(2)
+                except Exception:
+                    # Re-navigate to base URL and continue without sort
+                    page.goto(url, wait_until='networkidle', timeout=60000)
+                    time.sleep(1.5)
 
             should_stop = False
             while not should_stop:

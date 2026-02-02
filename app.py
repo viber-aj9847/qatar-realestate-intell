@@ -125,13 +125,16 @@ def api_scrape():
         thread.start()
     
     # Return current progress
-    return jsonify({
+    resp = {
         'status': progress_data['status'],
         'current_page': progress_data['current_page'],
         'total_pages': progress_data['total_pages'],
         'agencies_scraped': progress_data['agencies_scraped'],
         'current_action': progress_data.get('current_action', 'Processing...')
-    })
+    }
+    if progress_data['status'] == 'error' and progress_data.get('error'):
+        resp['error'] = progress_data['error']
+    return jsonify(resp)
 
 
 def scrape_all_pages(session_id):
@@ -192,12 +195,15 @@ def api_scrape_buy():
         thread.daemon = True
         thread.start()
     
-    return jsonify({
+    resp = {
         'status': progress_data['status'],
         'listings_scraped': progress_data.get('listings_scraped', 0),
         'total_properties_for_sale': progress_data.get('total_properties_for_sale'),
         'current_action': progress_data.get('current_action', 'Processing...')
-    })
+    }
+    if progress_data['status'] == 'error' and progress_data.get('error'):
+        resp['error'] = progress_data['error']
+    return jsonify(resp)
 
 
 def scrape_buy_listings(session_id):

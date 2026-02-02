@@ -172,7 +172,8 @@
                         window.location.href = completeRedirect;
                     }, 1000);
                 } else if (status === 'error') {
-                    alert('An error occurred during scraping. Please try again.');
+                    const errMsg = data.error || 'An error occurred during scraping. Please try again.';
+                    alert(errMsg);
                     window.location.href = '/';
                 } else {
                     setTimeout(updateProgress, 500);
