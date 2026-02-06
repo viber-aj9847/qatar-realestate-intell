@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analyse Buy Listings | Qatar Real Estate Intelligence</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #0f1419;
+            --bg-card: #1a2332;
+            --bg-elevated: #243044;
+            --accent: #00b4a8;
+            --accent-hover: #00d4c7;
+            --text: #e8eaed;
+            --text-muted: #9aa0a6;
+            --border: #3c4a5c;
+            --chart-colors: ['#00b4a8', '#6c5ce7', '#fd79a8', '#fdcb6e', '#00cec9', '#a29bfe', '#74b9ff'];
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'DM Sans', -apple-system, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+        .page-header {
+            background: linear-gradient(135deg, var(--bg-card) 0%, var(--bg-elevated) 100%);
+            padding: 2rem 2rem 2.5rem;
+            border-bottom: 1px solid var(--border);
+        }
+        .page-header h1 {
+            font-family: 'Playfair Display', serif;
+            font-size: 2rem;
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+        .page-header .subtitle {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+        }
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-top: 1rem;
+            color: var(--accent);
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+        .back-link:hover { color: var(--accent-hover); }
+        .container { max-width: 1400px; margin: 0 auto; padding: 2rem; }
+        .filters-bar {
+            background: var(--bg-card);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            border: 1px solid var(--border);
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 1rem;
+            align-items: end;
+        }
+        .filter-group label {
+            display: block;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-bottom: 0.4rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .filter-group input, .filter-group select {
+            width: 100%;
+            padding: 0.6rem 0.8rem;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-family: inherit;
+        }
+        .filter-group input:focus, .filter-group select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        .filter-group input::placeholder { color: var(--text-muted); opacity: 0.7; }
+        .btn {
+            padding: 0.6rem 1.2rem;
+            border: none;
+            border-radius: 8px;
+            font-family: inherit;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.15s, background 0.2s;
+        }
+        .btn-primary {
+            background: var(--accent);
+            color: var(--bg-dark);
+        }
+        .btn-primary:hover { background: var(--accent-hover); transform: translateY(-1px); }
+        .btn-ghost {
+            background: transparent;
+            color: var(--text-muted);
+            border: 1px solid var(--border);
+        }
+        .btn-ghost:hover { background: var(--bg-elevated); color: var(--text); }
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        .chart-card {
+            background: var(--bg-card);
+            border-radius: 12px;
+            padding: 1.5rem;
+            border: 1px solid var(--border);
+        }
+        .chart-card h3 {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: var(--text);
+        }
+        .chart-container { position: relative; height: 240px; }
+        .data-table-wrap {
+            background: var(--bg-card);
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }
+        .data-table-wrap h3 {
+            padding: 1.25rem 1.5rem;
+            font-size: 1.1rem;
+            border-bottom: 1px solid var(--border);
+        }
+        .table-scroll { overflow-x: auto; max-height: 500px; overflow-y: auto; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+        th {
+            text-align: left;
+            padding: 0.9rem 1rem;
+            background: var(--bg-elevated);
+            color: var(--text-muted);
+            font-weight: 600;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+        td {
+            padding: 0.8rem 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+        tr:hover td { background: rgba(0, 180, 168, 0.06); }
+        .price { color: var(--accent); font-weight: 600; white-space: nowrap; }
+        .img-thumb {
+            width: 60px;
+            height: 40px;
+            object-fit: cover;
+            border-radius: 6px;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-muted);
+        }
+        .loading { text-align: center; padding: 2rem; color: var(--text-muted); }
+        .stats-row {
+            display: flex;
+            gap: 1.5rem;
+            flex-wrap: wrap;
+            margin-bottom: 1.5rem;
+        }
+        .stat-badge {
+            background: var(--bg-elevated);
+            padding: 0.6rem 1rem;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            border: 1px solid var(--border);
+        }
+        .stat-badge strong { color: var(--accent); }
+    </style>
+</head>
+<body>
+    <header class="page-header">
+        <h1>Analyse Buy Listings</h1>
+        <p class="subtitle">Filter, explore, and visualize properties for sale in Qatar</p>
+        <a href="/" class="back-link">← Back to Home</a>
+    </header>
+    <div class="container">
+        <div class="filters-bar">
+            <div class="filter-group">
+                <label>Property Type</label>
+                <input type="text" id="filter-property-type" placeholder="e.g. Apartment, Villa">
+            </div>
+            <div class="filter-group">
+                <label>Min Price (QAR)</label>
+                <input type="number" id="filter-min-price" placeholder="0">
+            </div>
+            <div class="filter-group">
+                <label>Max Price (QAR)</label>
+                <input type="number" id="filter-max-price" placeholder="Any">
+            </div>
+            <div class="filter-group">
+                <label>Min Bedrooms</label>
+                <input type="number" id="filter-min-bedrooms" min="0" placeholder="Any">
+            </div>
+            <div class="filter-group">
+                <label>Max Bedrooms</label>
+                <input type="number" id="filter-max-bedrooms" min="0" placeholder="Any">
+            </div>
+            <div class="filter-group">
+                <label>Location</label>
+                <input type="text" id="filter-location" placeholder="Search location">
+            </div>
+            <div class="filter-group">
+                <label>Broker</label>
+                <input type="text" id="filter-broker" placeholder="Search broker">
+            </div>
+            <div class="filter-group">
+                <label>Sort By</label>
+                <select id="filter-sort">
+                    <option value="listed_date">Listed Date</option>
+                    <option value="price_value">Price</option>
+                    <option value="bedrooms">Bedrooms</option>
+                    <option value="title">Title</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label>&nbsp;</label>
+                <div style="display: flex; gap: 0.5rem;">
+                    <button class="btn btn-primary" id="btn-apply">Apply</button>
+                    <button class="btn btn-ghost" id="btn-reset">Reset</button>
+                </div>
+            </div>
+        </div>
+        <div class="stats-row" id="stats-row" style="display: none;">
+            <span class="stat-badge">Showing <strong id="stat-count">0</strong> of <strong id="stat-total">{{ count }}</strong> listings</span>
+        </div>
+        <div class="charts-grid" id="charts-section">
+            <div class="chart-card">
+                <h3>By Property Type</h3>
+                <div class="chart-container"><canvas id="chart-property-type"></canvas></div>
+            </div>
+            <div class="chart-card">
+                <h3>By Bedrooms</h3>
+                <div class="chart-container"><canvas id="chart-bedrooms"></canvas></div>
+            </div>
+            <div class="chart-card">
+                <h3>Price Distribution (QAR)</h3>
+                <div class="chart-container"><canvas id="chart-price"></canvas></div>
+            </div>
+            <div class="chart-card">
+                <h3>Top Locations</h3>
+                <div class="chart-container"><canvas id="chart-location"></canvas></div>
+            </div>
+        </div>
+        <div class="data-table-wrap">
+            <h3>All Listings</h3>
+            <div id="table-area">
+                <div class="loading" id="table-loading">Loading listings...</div>
+                <div class="table-scroll" id="table-scroll" style="display: none;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Image</th>
+                                <th>Title</th>
+                                <th>Type</th>
+                                <th>Price</th>
+                                <th>Beds</th>
+                                <th>Baths</th>
+                                <th>Size</th>
+                                <th>Location</th>
+                                <th>Broker</th>
+                                <th>Listed</th>
+                            </tr>
+                        </thead>
+                        <tbody id="table-body"></tbody>
+                    </table>
+                </div>
+                <div class="empty-state" id="table-empty" style="display: none;">
+                    No listings match your filters. Try adjusting the filters above.
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+        const CHART_COLORS = ['#00b4a8', '#6c5ce7', '#fd79a8', '#fdcb6e', '#00cec9', '#a29bfe', '#74b9ff', '#55efc4'];
+        let chartPropertyType, chartBedrooms, chartPrice, chartLocation;
+        let allData = [];
+
+        function buildParams() {
+            const p = {};
+            const pt = document.getElementById('filter-property-type').value.trim();
+            if (pt) p.property_type_like = pt;
+            const mp = document.getElementById('filter-min-price').value;
+            if (mp) p.min_price = parseFloat(mp);
+            const mx = document.getElementById('filter-max-price').value;
+            if (mx) p.max_price = parseFloat(mx);
+            const mb = document.getElementById('filter-min-bedrooms').value;
+            if (mb !== '') p.min_bedrooms = parseInt(mb);
+            const mxb = document.getElementById('filter-max-bedrooms').value;
+            if (mxb !== '') p.max_bedrooms = parseInt(mxb);
+            const loc = document.getElementById('filter-location').value.trim();
+            if (loc) p.location_search = loc;
+            const bro = document.getElementById('filter-broker').value.trim();
+            if (bro) p.broker_search = bro;
+            p.sort_by = document.getElementById('filter-sort').value;
+            p.sort_order = 'DESC';
+            return p;
+        }
+
+        function fetchListings() {
+            document.getElementById('table-loading').style.display = 'block';
+            document.getElementById('table-scroll').style.display = 'none';
+            document.getElementById('table-empty').style.display = 'none';
+            const params = new URLSearchParams(buildParams());
+            fetch('/api/buy-listings?' + params)
+                .then(r => r.json())
+                .then(data => {
+                    allData = data;
+                    document.getElementById('table-loading').style.display = 'none';
+                    if (data.length === 0) {
+                        document.getElementById('table-empty').style.display = 'block';
+                        document.getElementById('stats-row').style.display = 'none';
+                    } else {
+                        document.getElementById('table-scroll').style.display = 'block';
+                        document.getElementById('stats-row').style.display = 'flex';
+                        document.getElementById('stat-count').textContent = data.length;
+                        document.getElementById('stat-total').textContent = {{ count }};
+                    }
+                    renderTable(data);
+                    updateCharts(data);
+                })
+                .catch(err => {
+                    document.getElementById('table-loading').textContent = 'Error loading data.';
+                    document.getElementById('table-loading').style.display = 'block';
+                });
+        }
+
+        function renderTable(data) {
+            const tbody = document.getElementById('table-body');
+            tbody.innerHTML = data.map(row => {
+                const img = row.property_images ? (() => {
+                    try { const a = JSON.parse(row.property_images); return Array.isArray(a) && a[0] ? a[0] : null; } catch { return null; }
+                })() : null;
+                const imgHtml = img ? `<img src="${img}" class="img-thumb" alt="" onerror="this.style.display='none'">` : '<span class="text-muted">—</span>';
+                const price = row.price_value != null ? new Intl.NumberFormat('en-QA', { style: 'decimal', maximumFractionDigits: 0 }).format(row.price_value) + (row.price_currency ? ' ' + row.price_currency : '') : '—';
+                const listed = row.listed_date ? new Date(row.listed_date).toLocaleDateString() : '—';
+                const loc = row.location_name || row.location_full_name || '—';
+                return `<tr>
+                    <td>${imgHtml}</td>
+                    <td>${escapeHtml((row.title || '—').slice(0, 50))}${(row.title && row.title.length > 50) ? '…' : ''}</td>
+                    <td>${escapeHtml(row.property_type || '—')}</td>
+                    <td class="price">${price}</td>
+                    <td>${row.bedrooms != null ? row.bedrooms : '—'}</td>
+                    <td>${row.bathrooms != null ? row.bathrooms : '—'}</td>
+                    <td>${row.size_value != null ? row.size_value + (row.size_unit ? ' ' + row.size_unit : '') : '—'}</td>
+                    <td>${escapeHtml(loc)}</td>
+                    <td>${escapeHtml(row.broker_name || '—')}</td>
+                    <td>${listed}</td>
+                </tr>`;
+            }).join('');
+        }
+
+        function escapeHtml(s) {
+            const d = document.createElement('div');
+            d.textContent = s;
+            return d.innerHTML;
+        }
+
+        function updateCharts(data) {
+            if (data.length === 0) {
+                [chartPropertyType, chartBedrooms, chartPrice, chartLocation].forEach(c => { if (c) c.destroy(); });
+                chartPropertyType = chartBedrooms = chartPrice = chartLocation = null;
+                return;
+            }
+            const byType = {};
+            const byBed = {};
+            const byLoc = {};
+            const prices = [];
+            data.forEach(r => {
+                const t = r.property_type || 'Other';
+                byType[t] = (byType[t] || 0) + 1;
+                const b = r.bedrooms != null ? r.bedrooms : 'N/A';
+                byBed[b] = (byBed[b] || 0) + 1;
+                const loc = r.location_name || r.location_full_name || 'Unknown';
+                byLoc[loc] = (byLoc[loc] || 0) + 1;
+                if (r.price_value != null && r.price_value > 0) prices.push(r.price_value);
+            });
+
+            const typeLabels = Object.keys(byType).sort((a,b) => byType[b]-byType[a]);
+            const typeData = typeLabels.map(l => byType[l]);
+            const bedLabels = Object.keys(byBed).sort((a,b) => (a==='N/A'?999:a) - (b==='N/A'?999:b));
+            const bedData = bedLabels.map(l => byBed[l]);
+            const locSorted = Object.entries(byLoc).sort((a,b)=>b[1]-a[1]).slice(0, 10);
+            const locLabels = locSorted.map(([k])=>k);
+            const locData = locSorted.map(([,v])=>v);
+
+            const bucketLabels = ['0-500K', '500K-1M', '1M-2M', '2M-5M', '5M-10M', '10M+'];
+            const buckets = [0, 500000, 1000000, 2000000, 5000000, 10000000, Infinity];
+            const priceBuckets = new Array(6).fill(0);
+            prices.forEach(p => {
+                for (let i = 0; i < 6; i++)
+                    if (p >= buckets[i] && p < buckets[i+1]) { priceBuckets[i]++; break; }
+            });
+
+            const chartOpt = { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#9aa0a6' } } } };
+            const scaleOpt = { ticks: { color: '#9aa0a6' }, grid: { color: '#3c4a5c' } };
+
+            if (chartPropertyType) chartPropertyType.destroy();
+            chartPropertyType = new Chart(document.getElementById('chart-property-type'), {
+                type: 'doughnut',
+                data: { labels: typeLabels, datasets: [{ data: typeData, backgroundColor: CHART_COLORS }] },
+                options: chartOpt
+            });
+            if (chartBedrooms) chartBedrooms.destroy();
+            chartBedrooms = new Chart(document.getElementById('chart-bedrooms'), {
+                type: 'bar',
+                data: { labels: bedLabels, datasets: [{ label: 'Count', data: bedData, backgroundColor: CHART_COLORS[0] }] },
+                options: { ...chartOpt, scales: { y: scaleOpt, x: scaleOpt } }
+            });
+            if (chartPrice) chartPrice.destroy();
+            chartPrice = new Chart(document.getElementById('chart-price'), {
+                type: 'bar',
+                data: { labels: bucketLabels, datasets: [{ label: 'Listings', data: priceBuckets, backgroundColor: CHART_COLORS }] },
+                options: { ...chartOpt, scales: { y: scaleOpt, x: scaleOpt } }
+            });
+            if (chartLocation) chartLocation.destroy();
+            chartLocation = new Chart(document.getElementById('chart-location'), {
+                type: 'bar',
+                data: { labels: locLabels, datasets: [{ label: 'Listings', data: locData, backgroundColor: CHART_COLORS[1] }] },
+                options: { ...chartOpt, indexAxis: 'y', scales: { y: scaleOpt, x: scaleOpt } }
+            });
+        }
+
+        document.getElementById('btn-apply').addEventListener('click', fetchListings);
+        document.getElementById('btn-reset').addEventListener('click', () => {
+            document.getElementById('filter-property-type').value = '';
+            document.getElementById('filter-min-price').value = '';
+            document.getElementById('filter-max-price').value = '';
+            document.getElementById('filter-min-bedrooms').value = '';
+            document.getElementById('filter-max-bedrooms').value = '';
+            document.getElementById('filter-location').value = '';
+            document.getElementById('filter-broker').value = '';
+            document.getElementById('filter-sort').value = 'listed_date';
+            fetchListings();
+        });
+        fetchListings();
+    </script>
+</body>
+</html>

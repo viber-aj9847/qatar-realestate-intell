@@ -184,6 +184,43 @@
             background-color: #1976D2;
         }
         
+        .database-stats {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px 24px;
+            align-items: center;
+            margin-bottom: 20px;
+            padding: 12px 0;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .stat-item {
+            font-size: 1em;
+            color: #555;
+        }
+        
+        .stat-item strong {
+            color: #333;
+        }
+        
+        .analyse-btn {
+            display: inline-flex;
+            align-items: center;
+            padding: 8px 16px;
+            background: linear-gradient(135deg, #00b4a8 0%, #00897b 100%);
+            color: white;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 0.95em;
+            border-radius: 8px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .analyse-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 180, 168, 0.4);
+        }
+        
         @media (max-width: 768px) {
             .overlay-text {
                 font-size: 2em;
@@ -199,6 +236,12 @@
     
     <div class="form-container">
         <div class="platform-info">Platform Selected: Propertyfinder QA</div>
+        
+        <div class="database-stats">
+            <div class="stat-item">Agencies in database: <strong>{{ agencies_count }}</strong></div>
+            <div class="stat-item">Buy listings in database: <strong>{{ buy_listings_count }}</strong></div>
+            <a href="/analyse-buy-listings" class="analyse-btn">Analyse Buy Listings in Database</a>
+        </div>
         
         <form method="post" action="/" class="form-section">
             <div class="form-section-title">Agency Scraper</div>
@@ -220,12 +263,14 @@
             <button type="submit" class="button-buy">Run Buy Listing Scraper</button>
         </form>
         
-        {% if existing_count > 0 %}
+        {% if agencies_count > 0 or buy_listings_count > 0 %}
         <div class="view-results-section">
-            <div class="existing-count">
-                <strong>{{ existing_count }}</strong> agencies already in database
-            </div>
-            <a href="/view-results" class="view-results-button">View Current Results</a>
+            {% if agencies_count > 0 %}
+            <a href="/view-results" class="view-results-button">View Agency Results</a>
+            {% endif %}
+            {% if buy_listings_count > 0 %}
+            <a href="/view-buy-results" class="view-results-button" style="margin-top: 10px;">View Buy Listings</a>
+            {% endif %}
         </div>
         {% endif %}
     </div>

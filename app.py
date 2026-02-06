@@ -5,6 +5,7 @@ from database import (
     init_db, insert_companies, get_all_companies, get_companies_count,
     get_companies_for_csv, get_companies_filtered, cleanup_duplicates, get_company_by_id,
     insert_buy_listings, insert_buy_scrape_run, update_buy_scrape_run, get_buy_listings_count, get_latest_buy_scrape_run,
+    get_buy_listings_filtered,
 )
 import csv
 import io
@@ -86,17 +87,23 @@ def index():
         
         return redirect("/progress")
 
-    # GET request — show page with existing data count
+    # GET request — show page with existing data counts
     try:
-        existing_count = get_companies_count()
-        print(f"[OK] Main page: Found {existing_count} companies in database")
+        agencies_count = get_companies_count()
+        print(f"[OK] Main page: Found {agencies_count} companies in database")
     except Exception as e:
         print(f"[ERROR] Could not get companies count on main page: {e}")
         print(f"  This might indicate a database connection problem!")
         print(f"  Check logs and verify DATABASE_URL or POSTGRESQL_URI is set correctly.")
-        existing_count = 0
-    
-    return render_template("index.html", existing_count=existing_count)
+        agencies_count = 0
+    try:
+        buy_listings_count = get_buy_listings_count()
+        print(f"[OK] Main page: Found {buy_listings_count} buy listings in database")
+    except Exception as e:
+        print(f"[ERROR] Could not get buy listings count on main page: {e}")
+        buy_listings_count = 0
+
+    return render_template("index.html", agencies_count=agencies_count, buy_listings_count=buy_listings_count)
 
 
 @app.route("/start-buy-scraper", methods=["POST"])
@@ -330,6 +337,32 @@ def view_results():
 def view_buy_results():
     count = get_buy_listings_count()
     return render_template("view-buy-results.html", count=count)
+
+
+@app.route("/analyse-buy-listings")
+def analyse_buy_listings():
+    count = get_buy_listings_count()
+    return render_template("analyse-buy-listings.html", count=count)
+
+
+@app.route("/api/buy-listings")
+def api_buy_listings():
+    filters = {
+        'property_type': request.args.get('property_type') or None,
+        'property_type_like': request.args.get('property_type_like', '').strip() or None,
+        'min_price': request.args.get('min_price', type=float),
+        'max_price': request.args.get('max_price', type=float),
+        'min_bedrooms': request.args.get('min_bedrooms', type=int),
+        'max_bedrooms': request.args.get('max_bedrooms', type=int),
+        'min_bathrooms': request.args.get('min_bathrooms', type=int),
+        'location_search': request.args.get('location_search', '').strip() or None,
+        'broker_search': request.args.get('broker_search', '').strip() or None,
+        'sort_by': request.args.get('sort_by', 'listed_date'),
+        'sort_order': request.args.get('sort_order', 'DESC'),
+    }
+    filters = {k: v for k, v in filters.items() if v is not None}
+    listings = get_buy_listings_filtered(filters)
+    return jsonify(listings)
 
 
 @app.route("/api/results")

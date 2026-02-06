@@ -727,6 +727,70 @@ def get_buy_listings_count():
     return count
 
 
+# Columns returned for analysis/visualization
+BUY_LISTINGS_ANALYSIS_COLS = [
+    'property_id', 'title', 'property_type', 'price_value', 'price_currency',
+    'bedrooms', 'bathrooms', 'size_value', 'size_unit', 'furnished', 'completion_status',
+    'location_name', 'location_full_name', 'broker_name', 'agent_name',
+    'listed_date', 'property_images'
+]
+
+
+def get_buy_listings_filtered(filters, limit=5000):
+    """
+    Fetch buy listings with filters. Returns list of dicts with BUY_LISTINGS_ANALYSIS_COLS.
+    filters: property_type, property_type_like, min_price, max_price, min_bedrooms, max_bedrooms,
+             min_bathrooms, location_search, broker_search, sort_by, sort_order
+    """
+    conn = get_db_connection()
+    cur = conn.cursor()
+    is_postgres = hasattr(conn, 'server_version')
+    param = '%s' if is_postgres else '?'
+    cols = ', '.join(BUY_LISTINGS_ANALYSIS_COLS)
+    query = f"SELECT {cols} FROM buy_listings WHERE 1=1"
+    params = []
+    if filters.get('property_type'):
+        query += f" AND property_type = {param}"
+        params.append(filters['property_type'])
+    if filters.get('property_type_like'):
+        query += f" AND property_type LIKE {param}"
+        params.append(f"%{filters['property_type_like']}%")
+    if filters.get('min_price') is not None:
+        query += f" AND price_value >= {param}"
+        params.append(float(filters['min_price']))
+    if filters.get('max_price') is not None:
+        query += f" AND price_value <= {param}"
+        params.append(float(filters['max_price']))
+    if filters.get('min_bedrooms') is not None:
+        query += f" AND bedrooms >= {param}"
+        params.append(int(filters['min_bedrooms']))
+    if filters.get('max_bedrooms') is not None:
+        query += f" AND bedrooms <= {param}"
+        params.append(int(filters['max_bedrooms']))
+    if filters.get('min_bathrooms') is not None:
+        query += f" AND bathrooms >= {param}"
+        params.append(int(filters['min_bathrooms']))
+    if filters.get('location_search'):
+        query += f" AND (location_name LIKE {param} OR location_full_name LIKE {param})"
+        s = f"%{filters['location_search']}%"
+        params.extend([s, s])
+    if filters.get('broker_search'):
+        query += f" AND broker_name LIKE {param}"
+        params.append(f"%{filters['broker_search']}%")
+    sort_by = filters.get('sort_by', 'listed_date')
+    sort_order = filters.get('sort_order', 'DESC')
+    if sort_by not in BUY_LISTINGS_ANALYSIS_COLS:
+        sort_by = 'listed_date'
+    if sort_order.upper() not in ('ASC', 'DESC'):
+        sort_order = 'DESC'
+    query += f" ORDER BY {sort_by} {sort_order} LIMIT {limit}"
+    cur.execute(query, params)
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return [dict(zip(BUY_LISTINGS_ANALYSIS_COLS, row)) for row in rows]
+
+
 def get_latest_buy_scrape_run():
     """Return the most recent scrape run: dict with id, scraped_at, days_back, total_properties_for_sale, listings_scraped_count."""
     conn = get_db_connection()
