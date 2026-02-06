@@ -74,6 +74,7 @@ def index():
         session['session_id'] = f"{time.time()}_{id(session)}"
         session_id = session['session_id']
         
+        session['scraper_type'] = 'agency'
         # Initialize progress (agency scraper)
         progress_storage[session_id] = {
             'scraper_type': 'agency',
@@ -85,7 +86,7 @@ def index():
             'all_results': []
         }
         
-        return redirect("/progress")
+        return redirect("/progress?type=agency")
 
     # GET request — show page with existing data counts
     try:
