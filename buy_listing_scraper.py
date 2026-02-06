@@ -1,18 +1,37 @@
 """
 Buy listing scraper for Property Finder Qatar.
-Uses Playwright to open the buy page, sort by newest, paginate, and collect listings
-until listed_date (ISO) is older than days_back. Page structure from www.propertyfinder.qa
-buy page: __NEXT_DATA__ has props.pageProps.searchResult.listings (each item has "property")
-and searchResult.meta.total_count.
+Uses requests + BeautifulSoup to fetch buy pages (same pattern as agency scraper).
+__NEXT_DATA__ has props.pageProps.searchResult.listings and searchResult.meta.total_count.
+Paginates with ?sort=nd&page=N until listed_date (ISO) is older than days_back.
 """
 import json
 import re
 import time
-from datetime import datetime, timezone  # for listed_date_to_days_ago (ISO listed_date)
+from datetime import datetime, timezone
 from database import BUY_LISTINGS_COLUMNS
+
+import requests
+from bs4 import BeautifulSoup
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+}
 
 # All columns except scrape_run_id (set by app)
 LISTING_KEYS = [c for c in BUY_LISTINGS_COLUMNS if c != 'scrape_run_id']
+
+MAX_STATUS_LOG_ENTRIES = 100
+
+
+def _log(progress_data, message):
+    """Append timestamped message to progress_data['status_log'] if present."""
+    log_list = progress_data.get('status_log')
+    if log_list is None:
+        return
+    ts = datetime.now().strftime("%H:%M:%S")
+    log_list.append({"ts": ts, "msg": message})
+    if len(log_list) > MAX_STATUS_LOG_ENTRIES:
+        del log_list[: len(log_list) - MAX_STATUS_LOG_ENTRIES]
 
 
 def parse_listed_ago_days(text):
@@ -241,21 +260,18 @@ def extract_total_and_listings_from_next_data(data):
 
 def extract_total_from_page_content(html):
     """Extract total from page: span[aria-label='Search results count'] contains '8,957 properties', or metaTitle."""
-    # Span with aria-label="Search results count" contains "8,957 properties"
     m = re.search(r'aria-label=["\']Search results count["\'][^>]*>\s*([0-9,]+)\s*propert', html, re.I)
     if m:
         try:
             return int(m.group(1).replace(',', ''))
         except ValueError:
             pass
-    # "8,957 properties" or "8957 properties" near "Properties for sale in Qatar"
     m = re.search(r'Properties for sale in Qatar[^0-9]*([0-9,]+)\s*propert', html, re.I | re.DOTALL)
     if m:
         try:
             return int(m.group(1).replace(',', ''))
         except ValueError:
             pass
-    # Meta title: "Properties for sale in Qatar - 8,957 Properties for sale"
     m = re.search(r'([0-9,]+)\s*Propert(?:y|ies) for sale', html, re.I)
     if m:
         try:
@@ -265,140 +281,85 @@ def extract_total_from_page_content(html):
     return None
 
 
+def fetch_buy_page(url):
+    """
+    Fetch buy page with requests, parse __NEXT_DATA__, return (total_count, listings).
+    """
+    resp = requests.get(url, headers=HEADERS, timeout=30)
+    resp.raise_for_status()
+    soup = BeautifulSoup(resp.text, "html.parser")
+    script = soup.find("script", {"id": "__NEXT_DATA__"})
+    if not script or not script.text:
+        return None, []
+    data = json.loads(script.text)
+    return extract_total_and_listings_from_next_data(data)
+
+
 def run_buy_listing_scrape(session_id, days_back, progress_storage):
     """
     Run the buy listing scraper. Updates progress_storage[session_id] during execution.
     Returns (list_of_flat_listing_dicts, total_properties_for_sale).
+    Uses requests + BeautifulSoup (no Playwright).
     """
     progress_data = progress_storage[session_id]
-    progress_data['current_action'] = 'Launching browser...'
+    progress_data['current_action'] = 'Fetching buy page...'
+    _log(progress_data, 'Starting buy listing scrape')
 
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        raise RuntimeError("playwright not installed. Run: pip install playwright && playwright install chromium")
-
+    base_url = 'https://www.propertyfinder.qa/en/buy/properties-for-sale.html'
     all_listings = []
     total_properties_for_sale = None
     page_num = 1
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context(
-            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        )
-        page = context.new_page()
+    try:
+        should_stop = False
+        while not should_stop:
+            progress_data['current_page'] = page_num
+            progress_data['current_action'] = f'Fetching page {page_num}...'
+            progress_data['listings_scraped'] = len(all_listings)
+            _log(progress_data, f'Fetching page {page_num}...')
 
-        try:
-            url = 'https://www.propertyfinder.qa/en/buy/properties-for-sale.html'
-            progress_data['current_action'] = 'Loading buy page...'
-            page.goto(url, wait_until='networkidle', timeout=60000)
-            time.sleep(1.5)
+            page_url = base_url + ('?sort=nd' if page_num == 1 else f'?sort=nd&page={page_num}')
+            total_properties_for_sale, page_listings = fetch_buy_page(page_url)
+            if total_properties_for_sale is not None:
+                progress_data['total_properties_for_sale'] = total_properties_for_sale
+            if page_num == 1 and total_properties_for_sale is not None:
+                _log(progress_data, f'Total properties for sale: {total_properties_for_sale}')
 
-            html = page.content()
-            total_properties_for_sale = extract_total_from_page_content(html)
+            if not page_listings:
+                _log(progress_data, f'No listings on page {page_num}, stopping')
+                break
 
-            # Try __NEXT_DATA__ for total if not from text
-            script = page.locator('script#__NEXT_DATA__').first
-            if script.count():
-                try:
-                    nd_text = script.text_content()
-                    if nd_text:
-                        nd = json.loads(nd_text)
-                        t, _ = extract_total_and_listings_from_next_data(nd)
-                        if t is not None:
-                            total_properties_for_sale = t
-                except Exception:
-                    pass
-
-            progress_data['total_properties_for_sale'] = total_properties_for_sale
-            progress_data['current_action'] = 'Sorting by Newest...'
-
-            # Try URL-based sort first (avoids fragile click/timeout); nd = Newest per Property Finder filterChoices
-            sort_url = url + '?sort=nd'
-            try:
-                page.goto(sort_url, wait_until='networkidle', timeout=60000)
-                time.sleep(1.5)
-            except Exception:
-                # Fallback: try UI click (can timeout on Render if element not actionable)
-                try:
-                    sort_trigger = page.locator('[data-testid="filters-sort"]').first
-                    if sort_trigger.count():
-                        sort_trigger.click(timeout=10000)
-                        time.sleep(0.7)
-                        newest = page.locator('[role="option"]:has-text("Newest"), [data-testid*="sort"]:has-text("Newest"), button:has-text("Newest"), a:has-text("Newest")').first
-                        if newest.count():
-                            newest.click(timeout=10000)
-                        else:
-                            page.get_by_text("Newest", exact=False).first.click(timeout=10000)
-                        time.sleep(2)
-                except Exception:
-                    # Re-navigate to base URL and continue without sort
-                    page.goto(url, wait_until='networkidle', timeout=60000)
-                    time.sleep(1.5)
-
-            should_stop = False
-            while not should_stop:
-                progress_data['current_page'] = page_num
-                progress_data['current_action'] = f'Fetching page {page_num}...'
-                progress_data['listings_scraped'] = len(all_listings)
-
-                html = page.content()
-                # Parse __NEXT_DATA__
-                nd_script = page.locator('script#__NEXT_DATA__').first
-                if not nd_script.count():
+            for item in page_listings:
+                listed_date_iso = item.get('listed_date') if isinstance(item, dict) else None
+                listed_days = listed_date_to_days_ago(listed_date_iso)
+                if listed_days is None:
+                    listed_ago_text = item.get('time_ago') or (item.get('property') or {}).get('time_ago') or ''
+                    if isinstance(listed_ago_text, dict):
+                        listed_ago_text = listed_ago_text.get('en') or listed_ago_text.get('text') or ''
+                    listed_days = parse_listed_ago_days(str(listed_ago_text))
+                if listed_days is not None and listed_days > days_back:
+                    should_stop = True
+                    _log(progress_data, f'Stopping: listed date older than {days_back} days')
                     break
-                nd_text = nd_script.text_content()
-                if not nd_text:
-                    break
-                try:
-                    nd = json.loads(nd_text)
-                except json.JSONDecodeError:
-                    break
-                _, page_listings = extract_total_and_listings_from_next_data(nd)
-                if not page_listings:
-                    break
+                row = listing_to_row(item)
+                row['listed_date'] = listed_date_iso or row.get('listed_date')
+                all_listings.append(row)
 
-                for item in page_listings:
-                    # item is the property dict (from searchResult.listings[].property)
-                    # Prefer ISO listed_date for accurate days_ago; fallback to "Listed X ago" text
-                    listed_date_iso = item.get('listed_date') if isinstance(item, dict) else None
-                    listed_days = listed_date_to_days_ago(listed_date_iso)
-                    if listed_days is None:
-                        listed_ago_text = item.get('time_ago') or (item.get('property') or {}).get('time_ago') or ''
-                        if isinstance(listed_ago_text, dict):
-                            listed_ago_text = listed_ago_text.get('en') or listed_ago_text.get('text') or ''
-                        listed_days = parse_listed_ago_days(str(listed_ago_text))
-                    if listed_days is not None and listed_days > days_back:
-                        should_stop = True
-                        break
-                    row = listing_to_row(item)
-                    row['listed_date'] = listed_date_iso or row.get('listed_date')
-                    all_listings.append(row)
+            progress_data['listings_scraped'] = len(all_listings)
+            progress_data['current_action'] = f'Page {page_num} - {len(all_listings)} listings so far'
+            _log(progress_data, f'Page {page_num}: found {len(page_listings)} listings, total {len(all_listings)}')
 
-                progress_data['listings_scraped'] = len(all_listings)
-                progress_data['current_action'] = f'Page {page_num} - {len(all_listings)} listings so far'
+            if should_stop:
+                break
 
-                if should_stop:
-                    break
+            page_num += 1
+            time.sleep(0.8)
 
-                # Check if next page exists; navigate explicitly with sort preserved (?sort=nd&page=N)
-                next_link = page.locator('[data-testid="pagination-page-next-link"]').first
-                if not next_link.count():
-                    next_link = page.locator('a[href*="page="]:has-text("Next"), [aria-label="Go to next page"]').first
-                if not next_link.count():
-                    break
-                page_num += 1
-                next_page_url = url + f'?sort=nd&page={page_num}'
-                try:
-                    page.goto(next_page_url, wait_until='networkidle', timeout=60000)
-                except Exception:
-                    break
-                time.sleep(2)
-
-        finally:
-            browser.close()
+    except Exception as e:
+        _log(progress_data, f'Error: {str(e)}')
+        raise
 
     progress_data['listings_scraped'] = len(all_listings)
     progress_data['total_properties_for_sale'] = total_properties_for_sale
+    _log(progress_data, f'Scrape complete: {len(all_listings)} listings')
     return all_listings, total_properties_for_sale

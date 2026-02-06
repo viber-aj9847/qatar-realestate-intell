@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, redirect, make_response, jsonify, session, Response
 from propertyfinder import scrape_page
-from buy_listing_scraper import run_buy_listing_scrape
+from buy_listing_scraper import run_buy_listing_scrape, _log as log_buy_progress
 from database import (
     init_db, insert_companies, get_all_companies, get_companies_count,
     get_companies_for_csv, get_companies_filtered, cleanup_duplicates, get_company_by_id,
@@ -63,9 +63,9 @@ def index():
     # GET request — show page with existing data count
     try:
         existing_count = get_companies_count()
-        print(f"✓ Main page: Found {existing_count} companies in database")
+        print(f"[OK] Main page: Found {existing_count} companies in database")
     except Exception as e:
-        print(f"✗ ERROR: Could not get companies count on main page: {e}")
+        print(f"[ERROR] Could not get companies count on main page: {e}")
         print(f"  This might indicate a database connection problem!")
         print(f"  Check logs and verify DATABASE_URL or POSTGRESQL_URI is set correctly.")
         existing_count = 0
@@ -89,6 +89,7 @@ def start_buy_scraper():
         'current_page': 0,
         'status': 'starting',
         'current_action': 'Initializing buy listing scraper...',
+        'status_log': [],
     }
     return redirect("/progress?type=buy")
 
@@ -181,12 +182,15 @@ def api_scrape_buy():
         return jsonify({'error': 'Not a buy scraper session'}), 400
     
     if progress_data['status'] == 'complete':
-        return jsonify({
+        resp = {
             'status': 'complete',
             'listings_scraped': progress_data.get('listings_scraped', 0),
             'total_properties_for_sale': progress_data.get('total_properties_for_sale'),
             'current_action': progress_data.get('current_action', 'Complete!')
-        })
+        }
+        if progress_data.get('status_log') is not None:
+            resp['status_log'] = progress_data['status_log']
+        return jsonify(resp)
     
     if progress_data['status'] == 'starting':
         progress_data['status'] = 'in_progress'
@@ -201,6 +205,8 @@ def api_scrape_buy():
         'total_properties_for_sale': progress_data.get('total_properties_for_sale'),
         'current_action': progress_data.get('current_action', 'Processing...')
     }
+    if progress_data.get('status_log') is not None:
+        resp['status_log'] = progress_data['status_log']
     if progress_data['status'] == 'error' and progress_data.get('error'):
         resp['error'] = progress_data['error']
     return jsonify(resp)
@@ -215,7 +221,8 @@ def scrape_buy_listings(session_id):
         progress_data['total_properties_for_sale'] = total_properties_for_sale
         progress_data['listings_scraped'] = len(listings)
         progress_data['current_action'] = f'Saving {len(listings)} listings to database...'
-        
+        log_buy_progress(progress_data, f'Saving {len(listings)} listings to database...')
+
         run_id = insert_buy_scrape_run(
             total_properties_for_sale or 0,
             days_back,
@@ -225,8 +232,10 @@ def scrape_buy_listings(session_id):
         
         progress_data['status'] = 'complete'
         progress_data['current_action'] = 'Scraping complete!'
+        log_buy_progress(progress_data, 'Scraping complete!')
     except Exception as e:
         print(f"Error during buy listing scraping: {e}")
+        log_buy_progress(progress_data, f'Error: {str(e)}')
         import traceback
         traceback.print_exc()
         progress_data['status'] = 'error'

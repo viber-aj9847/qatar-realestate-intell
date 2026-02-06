@@ -1,14 +1,10 @@
-# Render Blueprint - enables Buy Listing scraper (Playwright/Chromium) on Render
+# Render Blueprint - Buy Listing scraper uses requests (no Playwright)
 # If using Blueprint: connect this repo in Render and sync.
-# If using manual setup: set buildCommand and PLAYWRIGHT_BROWSERS_PATH in Dashboard.
 
 services:
   - type: web
     name: qatar-realestate-intell
     runtime: python
     plan: free
-    buildCommand: pip install -r requirements.txt && playwright install chromium
-    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
-    envVars:
-      - key: PLAYWRIGHT_BROWSERS_PATH
-        value: /opt/render/project/playwright
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1

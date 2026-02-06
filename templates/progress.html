@@ -94,6 +94,28 @@
             font-style: italic;
             min-height: 24px;
         }
+        
+        .status-log-wrap {
+            margin-top: 24px;
+            width: 100%;
+            text-align: left;
+        }
+        .status-log-label {
+            font-size: 0.9em;
+            font-weight: bold;
+            color: #555;
+            margin-bottom: 6px;
+        }
+        .status-log {
+            max-height: 120px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 0.85em;
+            background: #f8f8f8;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 8px;
+        }
     </style>
 </head>
 <body>
@@ -117,6 +139,10 @@
         </div>
         <div class="loading-spinner"></div>
         <div class="current-action" id="current-action">Initializing...</div>
+        <div id="status-log-wrap" class="status-log-wrap" style="display: none;">
+            <div class="status-log-label">Activity log</div>
+            <div id="status-log" class="status-log"></div>
+        </div>
     </div>
 
     <script>
@@ -124,11 +150,27 @@
         const apiUrl = scraperType === 'buy' ? '/api/scrape-buy' : '/api/scrape';
         const completeRedirect = scraperType === 'buy' ? '/summary-buy' : '/summary';
 
+        let lastLogCount = 0;
         if (scraperType === 'buy') {
             document.getElementById('progress-info-agency').style.display = 'none';
             document.getElementById('progress-info-buy').style.display = 'block';
             document.getElementById('agencies-count-wrap').style.display = 'none';
             document.getElementById('listings-count-wrap').style.display = 'block';
+            document.getElementById('status-log-wrap').style.display = 'block';
+        }
+
+        function updateStatusLog(data) {
+            if (scraperType !== 'buy' || !data.status_log) return;
+            const logDiv = document.getElementById('status-log');
+            const entries = data.status_log;
+            for (let i = lastLogCount; i < entries.length; i++) {
+                const e = entries[i];
+                const line = document.createElement('div');
+                line.textContent = '[' + (e.ts || '') + '] ' + (e.msg || '');
+                logDiv.appendChild(line);
+            }
+            lastLogCount = entries.length;
+            logDiv.scrollTop = logDiv.scrollHeight;
         }
 
         function updateProgress() {
@@ -154,6 +196,7 @@
                     document.getElementById('total-pages').textContent = '';
                     document.getElementById('progress-bar').style.width = listingsScraped > 0 ? '100%' : '0%';
                     document.getElementById('progress-bar').textContent = listingsScraped > 0 ? '…' : '0%';
+                    updateStatusLog(data);
                 } else {
                     const currentPage = data.current_page || 0;
                     const totalPages = data.total_pages || 1;

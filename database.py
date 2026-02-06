@@ -5,10 +5,10 @@ from urllib.parse import urlparse
 try:
     import psycopg2
     PSYCOPG2_AVAILABLE = True
-    print("✓ psycopg2 successfully imported")
+    print("[OK] psycopg2 successfully imported")
 except ImportError as e:
     PSYCOPG2_AVAILABLE = False
-    print(f"✗ ERROR: psycopg2 import failed: {e}")
+    print(f"[ERROR] psycopg2 import failed: {e}")
     print(f"  This means PostgreSQL connections will not work!")
     print(f"  Check if psycopg2-binary is in requirements.txt and installed.")
     print(f"  Error details: {type(e).__name__}: {str(e)}")
@@ -52,10 +52,10 @@ def get_db_connection():
             # Extract database name for logging
             result = urlparse(database_url)
             db_name = result.path[1:] if result.path and result.path.startswith('/') else (result.path or "unknown")
-            print(f"✓ Connected to PostgreSQL database: {db_name}")
+            print(f"[OK] Connected to PostgreSQL database: {db_name}")
             return conn
         except Exception as e1:
-            print(f"✗ Method 1 failed: {e1}")
+            print(f"[X] Method 1 failed: {e1}")
             
             # Try method 2: Parsed connection with SSL
             try:
@@ -89,10 +89,10 @@ def get_db_connection():
                 cur.close()
                 
                 db_name = result.path[1:] if result.path and result.path.startswith('/') else (result.path or "unknown")
-                print(f"✓ Connected to PostgreSQL database: {db_name}")
+                print(f"[OK] Connected to PostgreSQL database: {db_name}")
                 return conn
             except Exception as e2:
-                print(f"✗ Method 2 also failed: {e2}")
+                print(f"[X] Method 2 also failed: {e2}")
                 print(f"  Error type: {type(e2).__name__}")
                 import traceback
                 print(f"  Full traceback:")
@@ -106,7 +106,7 @@ def get_db_connection():
     
     # Fallback to SQLite for local development
     import sqlite3
-    print("⚠ WARNING: Using SQLite database (local development mode)")
+    print("[WARN] Using SQLite database (local development mode)")
     print("  In production, set DATABASE_URL or POSTGRESQL_URI (Aiven) to use PostgreSQL!")
     return sqlite3.connect("properties.db")
 
@@ -119,9 +119,9 @@ def init_db():
     is_postgres = hasattr(conn, 'server_version')
     
     if is_postgres:
-        print("✓ Initializing PostgreSQL database...")
+        print("[OK] Initializing PostgreSQL database...")
     else:
-        print("⚠ WARNING: Initializing SQLite database (local dev mode)")
+        print("[WARN] Initializing SQLite database (local dev mode)")
         print("  Set DATABASE_URL or POSTGRESQL_URI for production PostgreSQL (Aiven/Render/etc.)")
     
     if is_postgres:
@@ -448,19 +448,19 @@ def get_companies_count():
         # Check if we're using PostgreSQL
         is_postgres = hasattr(conn, 'server_version')
         if is_postgres:
-            print("✓ Querying PostgreSQL for company count")
+            print("[OK] Querying PostgreSQL for company count")
         else:
-            print("⚠ WARNING: Using SQLite - data may not persist in production!")
+            print("[WARN] Using SQLite - data may not persist in production!")
         
         cur.execute("SELECT COUNT(*) FROM companies")
         count = cur.fetchone()[0]
         
         cur.close()
         conn.close()
-        print(f"✓ Found {count} companies in database")
+        print(f"[OK] Found {count} companies in database")
         return count
     except Exception as e:
-        print(f"✗ ERROR in get_companies_count(): {e}")
+        print(f"[ERROR] in get_companies_count(): {e}")
         raise  # Re-raise so the caller knows something went wrong
 
 
