@@ -3,8 +3,10 @@ Buy listing scraper for Property Finder Qatar.
 Uses requests + BeautifulSoup to fetch buy pages (same pattern as agency scraper).
 __NEXT_DATA__ has props.pageProps.searchResult.listings and searchResult.meta.total_count.
 Paginates with ?sort=nd&page=N until listed_date (ISO) is older than days_back.
+Supports batch insert callback to reduce memory usage on constrained environments.
 """
 import json
+import os
 import re
 import time
 from datetime import datetime, timezone
@@ -12,6 +14,10 @@ from database import BUY_LISTINGS_COLUMNS
 
 import requests
 from bs4 import BeautifulSoup
+
+# Max listings per run (configurable via BUY_SCRAPE_MAX_LISTINGS env, default 500)
+DEFAULT_MAX_LISTINGS = 500
+BATCH_INSERT_SIZE = 50
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -295,28 +301,48 @@ def fetch_buy_page(url):
     return extract_total_and_listings_from_next_data(data)
 
 
-def run_buy_listing_scrape(session_id, days_back, progress_storage):
+def run_buy_listing_scrape(session_id, days_back, progress_storage, run_id=None, on_batch_callback=None):
     """
     Run the buy listing scraper. Updates progress_storage[session_id] during execution.
-    Returns (list_of_flat_listing_dicts, total_properties_for_sale).
-    Uses requests + BeautifulSoup (no Playwright).
+    Returns (total_listings_count, total_properties_for_sale).
+
+    When on_batch_callback and run_id are provided, listings are inserted in batches
+    (reducing memory usage). The callback receives (batch, run_id) and should insert
+    the batch. Otherwise, all listings are accumulated and returned at the end.
+
+    max_listings: cap from BUY_SCRAPE_MAX_LISTINGS env (default 500). Stops scrape when reached.
     """
     progress_data = progress_storage[session_id]
     progress_data['current_action'] = 'Fetching buy page...'
     _log(progress_data, 'Starting buy listing scrape')
 
+    max_listings = int(os.environ.get('BUY_SCRAPE_MAX_LISTINGS', str(DEFAULT_MAX_LISTINGS)))
     base_url = 'https://www.propertyfinder.qa/en/buy/properties-for-sale.html'
-    all_listings = []
+    all_listings = [] if on_batch_callback is None else None
+    total_inserted = 0
     total_properties_for_sale = None
     page_num = 1
+    page_batch = []
+
+    def flush_batch():
+        nonlocal total_inserted
+        if page_batch and on_batch_callback and run_id is not None:
+            on_batch_callback(list(page_batch), run_id)
+            total_inserted += len(page_batch)
+            page_batch.clear()
 
     try:
         should_stop = False
         while not should_stop:
             progress_data['current_page'] = page_num
             progress_data['current_action'] = f'Fetching page {page_num}...'
-            progress_data['listings_scraped'] = len(all_listings)
+            current_count = total_inserted + len(page_batch) if on_batch_callback else len(all_listings)
+            progress_data['listings_scraped'] = current_count
             _log(progress_data, f'Fetching page {page_num}...')
+
+            if current_count >= max_listings:
+                _log(progress_data, f'Reached max listings limit ({max_listings}), stopping')
+                break
 
             page_url = base_url + ('?sort=nd' if page_num == 1 else f'?sort=nd&page={page_num}')
             total_properties_for_sale, page_listings = fetch_buy_page(page_url)
@@ -330,6 +356,10 @@ def run_buy_listing_scrape(session_id, days_back, progress_storage):
                 break
 
             for item in page_listings:
+                if total_inserted + len(page_batch) + (len(all_listings) if all_listings is not None else 0) >= max_listings:
+                    should_stop = True
+                    _log(progress_data, f'Reached max listings limit ({max_listings})')
+                    break
                 listed_date_iso = item.get('listed_date') if isinstance(item, dict) else None
                 listed_days = listed_date_to_days_ago(listed_date_iso)
                 if listed_days is None:
@@ -343,11 +373,18 @@ def run_buy_listing_scrape(session_id, days_back, progress_storage):
                     break
                 row = listing_to_row(item)
                 row['listed_date'] = listed_date_iso or row.get('listed_date')
-                all_listings.append(row)
+                if on_batch_callback:
+                    page_batch.append(row)
+                    if len(page_batch) >= BATCH_INSERT_SIZE:
+                        flush_batch()
+                else:
+                    all_listings.append(row)
 
-            progress_data['listings_scraped'] = len(all_listings)
-            progress_data['current_action'] = f'Page {page_num} - {len(all_listings)} listings so far'
-            _log(progress_data, f'Page {page_num}: found {len(page_listings)} listings, total {len(all_listings)}')
+            flush_batch()
+            current_count = total_inserted if on_batch_callback else len(all_listings)
+            progress_data['listings_scraped'] = current_count
+            progress_data['current_action'] = f'Page {page_num} - {current_count} listings so far'
+            _log(progress_data, f'Page {page_num}: found {len(page_listings)} listings, total {current_count}')
 
             if should_stop:
                 break
@@ -359,7 +396,9 @@ def run_buy_listing_scrape(session_id, days_back, progress_storage):
         _log(progress_data, f'Error: {str(e)}')
         raise
 
-    progress_data['listings_scraped'] = len(all_listings)
+    final_count = total_inserted if on_batch_callback else len(all_listings)
+    progress_data['listings_scraped'] = final_count
     progress_data['total_properties_for_sale'] = total_properties_for_sale
-    _log(progress_data, f'Scrape complete: {len(all_listings)} listings')
-    return all_listings, total_properties_for_sale
+    _log(progress_data, f'Scrape complete: {final_count} listings')
+    # When using callback: return (None, total) - caller skips insert. Otherwise return (listings, total).
+    return (None, total_properties_for_sale) if on_batch_callback else (all_listings, total_properties_for_sale)

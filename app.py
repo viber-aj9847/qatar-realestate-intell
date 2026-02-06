@@ -4,14 +4,17 @@ from buy_listing_scraper import run_buy_listing_scrape, _log as log_buy_progress
 from database import (
     init_db, insert_companies, get_all_companies, get_companies_count,
     get_companies_for_csv, get_companies_filtered, cleanup_duplicates, get_company_by_id,
-    insert_buy_listings, insert_buy_scrape_run, get_buy_listings_count, get_latest_buy_scrape_run,
+    insert_buy_listings, insert_buy_scrape_run, update_buy_scrape_run, get_buy_listings_count, get_latest_buy_scrape_run,
 )
 import csv
 import io
-from datetime import datetime
+from datetime import datetime, timedelta
 import threading
 import time
 import os
+
+PROGRESS_STORAGE_RETENTION_SECONDS = 300  # 5 minutes
+PROGRESS_STORAGE_MAX_ENTRIES = 20
 
 app = Flask(__name__)
 # Use environment variable for secret key (set in production)
@@ -20,6 +23,28 @@ app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-producti
 
 # In-memory storage for progress tracking
 progress_storage = {}
+
+
+def prune_progress_storage():
+    """Remove old completed/error sessions and cap total entries to limit memory growth."""
+    now = datetime.now()
+    cutoff = now - timedelta(seconds=PROGRESS_STORAGE_RETENTION_SECONDS)
+    to_remove = []
+    for sid, data in progress_storage.items():
+        status = data.get('status')
+        completed_at = data.get('completed_at')
+        if status in ('complete', 'error') and completed_at is not None:
+            if isinstance(completed_at, datetime) and completed_at < cutoff:
+                to_remove.append(sid)
+        elif status in ('complete', 'error') and completed_at is None:
+            data['completed_at'] = now
+    for sid in to_remove:
+        del progress_storage[sid]
+    # Cap total entries - evict oldest by session id (which contains timestamp)
+    while len(progress_storage) > PROGRESS_STORAGE_MAX_ENTRIES:
+        oldest = min(progress_storage.keys(), key=lambda k: k)
+        del progress_storage[oldest]
+
 
 init_db()
 # Clean up any existing duplicates on startup
@@ -41,6 +66,7 @@ def after_request(response):
 @app.route("/", methods=["GET", "POST"])
 def index():
     if request.method == "POST":
+        prune_progress_storage()
         pages = int(request.form["pages"])
         # Store pages in session and redirect to progress page
         session['total_pages'] = pages
@@ -75,6 +101,7 @@ def index():
 
 @app.route("/start-buy-scraper", methods=["POST"])
 def start_buy_scraper():
+    prune_progress_storage()
     days_back = int(request.form.get("days_back", 2))
     session['total_pages'] = 0  # not used for buy
     session['session_id'] = f"buy_{time.time()}_{id(session)}"
@@ -164,11 +191,13 @@ def scrape_all_pages(session_id):
         insert_companies(all_results)
         progress_data['status'] = 'complete'
         progress_data['current_action'] = 'Scraping complete!'
-        
+        progress_data['completed_at'] = datetime.now()
+
     except Exception as e:
         print(f"Error during scraping: {e}")
         progress_data['status'] = 'error'
         progress_data['error'] = str(e)
+        progress_data['completed_at'] = datetime.now()
 
 
 @app.route("/api/scrape-buy", methods=["POST"])
@@ -213,25 +242,33 @@ def api_scrape_buy():
 
 
 def scrape_buy_listings(session_id):
-    """Background: run buy listing scraper, then save to DB."""
+    """Background: run buy listing scraper, then save to DB. Uses batch inserts to reduce memory."""
     progress_data = progress_storage[session_id]
     days_back = progress_data['days_back']
-    try:
-        listings, total_properties_for_sale = run_buy_listing_scrape(session_id, days_back, progress_storage)
-        progress_data['total_properties_for_sale'] = total_properties_for_sale
-        progress_data['listings_scraped'] = len(listings)
-        progress_data['current_action'] = f'Saving {len(listings)} listings to database...'
-        log_buy_progress(progress_data, f'Saving {len(listings)} listings to database...')
+    run_id = insert_buy_scrape_run(0, days_back, 0)
 
-        run_id = insert_buy_scrape_run(
-            total_properties_for_sale or 0,
-            days_back,
-            len(listings)
+    def on_batch(batch, rid):
+        insert_buy_listings(batch, rid)
+
+    try:
+        listings, total_properties_for_sale = run_buy_listing_scrape(
+            session_id, days_back, progress_storage,
+            run_id=run_id, on_batch_callback=on_batch
         )
-        insert_buy_listings(listings, run_id)
-        
+        progress_data['total_properties_for_sale'] = total_properties_for_sale
+        count = progress_data['listings_scraped']
+        progress_data['current_action'] = f'Saving {count} listings to database...'
+        log_buy_progress(progress_data, f'Saving {count} listings to database...')
+
+        if listings is not None:
+            insert_buy_listings(listings, run_id)
+            count = len(listings)
+
+        update_buy_scrape_run(run_id, total_properties_for_sale=total_properties_for_sale or 0, listings_count=count)
+
         progress_data['status'] = 'complete'
         progress_data['current_action'] = 'Scraping complete!'
+        progress_data['completed_at'] = datetime.now()
         log_buy_progress(progress_data, 'Scraping complete!')
     except Exception as e:
         print(f"Error during buy listing scraping: {e}")
@@ -240,6 +277,7 @@ def scrape_buy_listings(session_id):
         traceback.print_exc()
         progress_data['status'] = 'error'
         progress_data['error'] = str(e)
+        progress_data['completed_at'] = datetime.now()
 
 
 @app.route("/summary")

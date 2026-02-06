@@ -173,6 +173,16 @@
             logDiv.scrollTop = logDiv.scrollHeight;
         }
 
+        const POLL_INTERVAL_MS = 2000;
+
+        function handleSessionExpired(message) {
+            document.getElementById('current-action').textContent = message || 'Session expired. The server may have restarted.';
+            document.getElementById('current-action').style.color = '#c00';
+            setTimeout(function() {
+                window.location.href = '/';
+            }, 3000);
+        }
+
         function updateProgress() {
             fetch(apiUrl, {
                 method: 'POST',
@@ -180,8 +190,20 @@
                     'Content-Type': 'application/json',
                 }
             })
-            .then(response => response.json())
-            .then(data => {
+            .then(function(response) {
+                return response.json().then(function(data) {
+                    return { ok: response.ok, status: response.status, data: data };
+                });
+            })
+            .then(function(result) {
+                const data = result.data;
+                if (!result.ok) {
+                    const err = data && data.error ? String(data.error) : '';
+                    if (result.status === 400 && (err.includes('No buy scraping session') || err.includes('No scraping session'))) {
+                        handleSessionExpired('Session expired – the server may have restarted. Redirecting...');
+                        return;
+                    }
+                }
                 const status = data.status;
                 const currentAction = data.current_action || 'Processing...';
                 document.getElementById('current-action').textContent = currentAction;
@@ -219,12 +241,12 @@
                     alert(errMsg);
                     window.location.href = '/';
                 } else {
-                    setTimeout(updateProgress, 500);
+                    setTimeout(updateProgress, POLL_INTERVAL_MS);
                 }
             })
-            .catch(error => {
+            .catch(function(error) {
                 console.error('Error:', error);
-                setTimeout(updateProgress, 1000);
+                setTimeout(updateProgress, POLL_INTERVAL_MS);
             });
         }
 

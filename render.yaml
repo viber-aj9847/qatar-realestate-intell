@@ -1,5 +1,8 @@
 # Render Blueprint - Buy Listing scraper uses requests (no Playwright)
 # If using Blueprint: connect this repo in Render and sync.
+#
+# Memory optimization: BUY_SCRAPE_MAX_LISTINGS=500 (default) limits scrape size.
+# If memory issues persist on free tier, consider upgrading to Starter plan.
 
 services:
   - type: web

@@ -1,9 +1,20 @@
 import os
 from urllib.parse import urlparse
 
+# Only print verbose DEBUG logs when DEBUG or FLASK_DEBUG env is set (reduces I/O in production)
+_DEBUG = bool(os.environ.get('DEBUG') or os.environ.get('FLASK_DEBUG'))
+
+def _log(msg):
+    if _DEBUG:
+        print(msg)
+
+# PostgreSQL connection pool (lazy-init, used when DATABASE_URL works with method 1)
+_pg_pool = None
+
 # Try to import psycopg2, but don't fail if it's not installed (for local SQLite development)
 try:
     import psycopg2
+    from psycopg2 import pool
     PSYCOPG2_AVAILABLE = True
     print("[OK] psycopg2 successfully imported")
 except ImportError as e:
@@ -18,48 +29,47 @@ def get_db_connection():
     Supports DATABASE_URL (Render, Heroku, etc.) or POSTGRESQL_URI (Aiven)."""
     database_url = os.environ.get('DATABASE_URL') or os.environ.get('POSTGRESQL_URI')
     
-    # Diagnostic logging
-    print(f"DEBUG: DATABASE_URL/POSTGRESQL_URI is set: {bool(database_url)}")
-    print(f"DEBUG: PSYCOPG2_AVAILABLE: {PSYCOPG2_AVAILABLE}")
+    _log(f"DEBUG: DATABASE_URL/POSTGRESQL_URI is set: {bool(database_url)}")
+    _log(f"DEBUG: PSYCOPG2_AVAILABLE: {PSYCOPG2_AVAILABLE}")
     if database_url:
-        # Show partial URL (hide password)
         safe_url = database_url.split('@')[-1] if '@' in database_url else database_url[:50]
-        print(f"DEBUG: DATABASE_URL host: {safe_url}")
+        _log(f"DEBUG: DATABASE_URL host: {safe_url}")
     else:
-        print("DEBUG: DATABASE_URL/POSTGRESQL_URI is NOT set in environment variables!")
+        _log("DEBUG: DATABASE_URL/POSTGRESQL_URI is NOT set in environment variables!")
     
     if database_url and PSYCOPG2_AVAILABLE:
-        # Try method 1: Direct connection string with SSL (works with Aiven, Render, etc.)
+        # Add SSL mode to connection string if not present
+        if 'sslmode=' not in database_url:
+            conn_url = database_url + ('&sslmode=require' if '?' in database_url else '?sslmode=require')
+        else:
+            conn_url = database_url
+
+        # Use connection pool when available (reduces connection churn)
+        global _pg_pool
+        if _pg_pool is not None:
+            try:
+                return _pg_pool.getconn()
+            except Exception:
+                _pg_pool = None  # Reset on error, will recreate or fall through
+
         try:
-            print("Attempting PostgreSQL connection (method 1: direct URL with SSL)...")
-            # Add SSL mode to connection string if not present
-            if 'sslmode=' not in database_url:
-                # Add sslmode parameter to the connection string
-                if '?' in database_url:
-                    conn_url = database_url + '&sslmode=require'
-                else:
-                    conn_url = database_url + '?sslmode=require'
-            else:
-                conn_url = database_url
-            
-            conn = psycopg2.connect(conn_url)
-            
-            # Test the connection
+            _log("Attempting PostgreSQL connection (method 1: direct URL with SSL)...")
+            # Create pool on first successful use
+            p = pool.ThreadedConnectionPool(1, 10, conn_url)
+            conn = p.getconn()
             cur = conn.cursor()
             cur.execute("SELECT 1")
             cur.close()
-            
-            # Extract database name for logging
+            _pg_pool = p
             result = urlparse(database_url)
             db_name = result.path[1:] if result.path and result.path.startswith('/') else (result.path or "unknown")
-            print(f"[OK] Connected to PostgreSQL database: {db_name}")
+            _log(f"[OK] Connected to PostgreSQL database: {db_name} (pooled)")
             return conn
         except Exception as e1:
-            print(f"[X] Method 1 failed: {e1}")
+            _log(f"[X] Method 1 failed: {e1}")
             
-            # Try method 2: Parsed connection with SSL
             try:
-                print("Attempting PostgreSQL connection (method 2: parsed parameters with SSL)...")
+                _log("Attempting PostgreSQL connection (method 2: parsed parameters with SSL)...")
                 result = urlparse(database_url)
                 
                 # Build connection parameters
@@ -79,7 +89,7 @@ def get_db_connection():
                 # Aiven, Render, and most cloud PostgreSQL require SSL
                 conn_params['sslmode'] = 'require'
                 
-                print(f"  Connecting to: {result.hostname}:{conn_params['port']}/{conn_params['database']}")
+                _log(f"  Connecting to: {result.hostname}:{conn_params['port']}/{conn_params['database']}")
                 
                 conn = psycopg2.connect(**conn_params)
                 
@@ -89,25 +99,24 @@ def get_db_connection():
                 cur.close()
                 
                 db_name = result.path[1:] if result.path and result.path.startswith('/') else (result.path or "unknown")
-                print(f"[OK] Connected to PostgreSQL database: {db_name}")
+                _log(f"[OK] Connected to PostgreSQL database: {db_name}")
                 return conn
             except Exception as e2:
-                print(f"[X] Method 2 also failed: {e2}")
-                print(f"  Error type: {type(e2).__name__}")
-                import traceback
-                print(f"  Full traceback:")
-                traceback.print_exc()
-                if database_url:
-                    # Show partial URL for debugging (hide password)
-                    safe_url = database_url.split('@')[-1] if '@' in database_url else database_url[:50]
-                    print(f"  Connection URI host: {safe_url}")
-                print("  Falling back to SQLite (this will create a NEW empty database!)")
+                _log(f"[X] Method 2 also failed: {e2}")
+                _log(f"  Error type: {type(e2).__name__}")
+                if _DEBUG:
+                    import traceback
+                    traceback.print_exc()
+                    if database_url:
+                        safe_url = database_url.split('@')[-1] if '@' in database_url else database_url[:50]
+                        _log(f"  Connection URI host: {safe_url}")
+                _log("  Falling back to SQLite (this will create a NEW empty database!)")
                 # Fall through to SQLite
     
     # Fallback to SQLite for local development
     import sqlite3
-    print("[WARN] Using SQLite database (local development mode)")
-    print("  In production, set DATABASE_URL or POSTGRESQL_URI (Aiven) to use PostgreSQL!")
+    _log("[WARN] Using SQLite database (local development mode)")
+    _log("  In production, set DATABASE_URL or POSTGRESQL_URI (Aiven) to use PostgreSQL!")
     return sqlite3.connect("properties.db")
 
 
@@ -119,10 +128,10 @@ def init_db():
     is_postgres = hasattr(conn, 'server_version')
     
     if is_postgres:
-        print("[OK] Initializing PostgreSQL database...")
+        _log("[OK] Initializing PostgreSQL database...")
     else:
-        print("[WARN] Initializing SQLite database (local dev mode)")
-        print("  Set DATABASE_URL or POSTGRESQL_URI for production PostgreSQL (Aiven/Render/etc.)")
+        _log("[WARN] Initializing SQLite database (local dev mode)")
+        _log("  Set DATABASE_URL or POSTGRESQL_URI for production PostgreSQL (Aiven/Render/etc.)")
     
     if is_postgres:
         cur.execute("""
@@ -448,16 +457,16 @@ def get_companies_count():
         # Check if we're using PostgreSQL
         is_postgres = hasattr(conn, 'server_version')
         if is_postgres:
-            print("[OK] Querying PostgreSQL for company count")
+            _log("[OK] Querying PostgreSQL for company count")
         else:
-            print("[WARN] Using SQLite - data may not persist in production!")
+            _log("[WARN] Using SQLite - data may not persist in production!")
         
         cur.execute("SELECT COUNT(*) FROM companies")
         count = cur.fetchone()[0]
         
         cur.close()
         conn.close()
-        print(f"[OK] Found {count} companies in database")
+        _log(f"[OK] Found {count} companies in database")
         return count
     except Exception as e:
         print(f"[ERROR] in get_companies_count(): {e}")
@@ -676,6 +685,31 @@ def insert_buy_listings(listings_list, scrape_run_id):
         values[-1] = scrape_run_id
         cur.execute(
             f"INSERT INTO buy_listings ({columns_str}) VALUES ({placeholders})",
+            values
+        )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def update_buy_scrape_run(run_id, total_properties_for_sale=None, listings_count=None):
+    """Update a scrape run's total_properties_for_sale and/or listings_scraped_count."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    is_postgres = hasattr(conn, 'server_version')
+    param = '%s' if is_postgres else '?'
+    updates = []
+    values = []
+    if total_properties_for_sale is not None:
+        updates.append(f"total_properties_for_sale = {param}")
+        values.append(total_properties_for_sale)
+    if listings_count is not None:
+        updates.append(f"listings_scraped_count = {param}")
+        values.append(listings_count)
+    if updates:
+        values.append(run_id)
+        cur.execute(
+            f"UPDATE buy_listing_scrape_runs SET {', '.join(updates)} WHERE id = {param}",
             values
         )
     conn.commit()
