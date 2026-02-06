@@ -2,7 +2,7 @@
 Buy listing scraper for Property Finder Qatar.
 Uses requests + BeautifulSoup to fetch buy pages (same pattern as agency scraper).
 __NEXT_DATA__ has props.pageProps.searchResult.listings and searchResult.meta.total_count.
-Paginates with ?sort=nd&page=N until listed_date (ISO) is older than days_back.
+Paginates with ?c=1&fu=0&ob=nd&page=N until listed_date (ISO) is older than days_back.
 Supports batch insert callback to reduce memory usage on constrained environments.
 """
 import json
@@ -358,7 +358,9 @@ def run_buy_listing_scrape(session_id, days_back, progress_storage, run_id=None,
     _log(progress_data, 'Starting buy listing scrape')
 
     max_listings = int(os.environ.get('BUY_SCRAPE_MAX_LISTINGS', str(DEFAULT_MAX_LISTINGS)))
-    base_url = 'https://www.propertyfinder.qa/en/buy/properties-for-sale.html'
+    # Match Property Finder canonical URLs: /en/search?c=1&fu=0&ob=nd (ob=nd = newest first)
+    base_url = 'https://www.propertyfinder.qa/en/search'
+    base_params = 'c=1&fu=0&ob=nd'  # c=1 category (buy), fu=0, ob=nd = order by newest date
     all_listings = [] if on_batch_callback is None else None
     total_inserted = 0
     total_properties_for_sale = None
@@ -385,7 +387,7 @@ def run_buy_listing_scrape(session_id, days_back, progress_storage, run_id=None,
                 _log(progress_data, f'Reached max listings limit ({max_listings}), stopping')
                 break
 
-            page_url = base_url + ('?sort=nd' if page_num == 1 else f'?sort=nd&page={page_num}')
+            page_url = f'{base_url}?{base_params}' if page_num == 1 else f'{base_url}?{base_params}&page={page_num}'
             total_properties_for_sale, page_listings = fetch_buy_page(page_url)
             if total_properties_for_sale is not None:
                 progress_data['total_properties_for_sale'] = total_properties_for_sale
