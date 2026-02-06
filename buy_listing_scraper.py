@@ -19,8 +19,17 @@ from bs4 import BeautifulSoup
 DEFAULT_MAX_LISTINGS = 500
 BATCH_INSERT_SIZE = 50
 
+# Browser-like headers to reduce bot detection
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Referer": "https://www.propertyfinder.qa/",
+    "Sec-Ch-Ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"Windows"',
+    "Upgrade-Insecure-Requests": "1",
 }
 
 # All columns except scrape_run_id (set by app)
@@ -229,38 +238,57 @@ def extract_total_and_listings_from_next_data(data):
     Extract total count and listings from __NEXT_DATA__. Property Finder QA structure:
     props.pageProps.searchResult.listings (each item has "property") and searchResult.meta.total_count.
     Returns (total_count, list_of_property_dicts) - each listing is the inner "property" object.
+    Tries multiple paths for robustness; logs which path produced data.
     """
     total = None
     listings = []
+    path_used = None
     try:
         props = data.get('props', {})
         page_props = props.get('pageProps', {})
-        # Property Finder QA: pageProps.searchResult.listings, searchResult.meta.total_count
+        # Path 1: Property Finder QA: pageProps.searchResult.listings
         sr = page_props.get('searchResult')
         if isinstance(sr, dict):
             meta = sr.get('meta') or {}
             total = meta.get('total_count') or meta.get('total') or meta.get('count')
             raw_list = sr.get('listings') or sr.get('results') or sr.get('data') or []
-            # Each raw item has "property" key with the listing data
             listings = [item.get('property') or item for item in raw_list if isinstance(item, dict)]
+            if listings:
+                path_used = "searchResult.listings"
+        # Path 2: searchResults.results
         if not listings and 'searchResults' in page_props:
             srr = page_props['searchResults']
             total = srr.get('totalCount') or srr.get('total') or srr.get('count')
             listings = srr.get('results') or srr.get('data') or srr.get('listings') or []
+            if listings:
+                path_used = "searchResults.results"
+        # Path 3: search.results
         if not listings and 'search' in page_props:
             search = page_props['search']
             total = search.get('totalCount') or search.get('total')
             listings = search.get('results') or search.get('data') or search.get('listings') or []
+            if listings:
+                path_used = "search.results"
+        # Path 4: direct pageProps.listings
         if not listings and 'listings' in page_props:
             listings = page_props['listings']
             total = page_props.get('totalCount') or page_props.get('total') or len(listings)
+            if listings:
+                path_used = "pageProps.listings"
+        # Path 5: props.listings (top-level)
+        if not listings and 'listings' in props:
+            listings = props.get('listings') or []
+            total = props.get('totalCount') or props.get('total') or len(listings)
+            if listings:
+                path_used = "props.listings"
         if total is not None and not isinstance(total, int):
             try:
                 total = int(str(total).replace(',', ''))
             except ValueError:
                 total = None
-    except Exception:
-        pass
+        print(f"[BUY-SCRAPE] extract_next_data: total={total}, len(listings)={len(listings)}, path={path_used or 'none'}")
+    except Exception as ex:
+        print(f"[BUY-SCRAPE] extract_next_data ERROR: {ex}")
     return total, listings
 
 
@@ -290,15 +318,28 @@ def extract_total_from_page_content(html):
 def fetch_buy_page(url):
     """
     Fetch buy page with requests, parse __NEXT_DATA__, return (total_count, listings).
+    Falls back to HTML parsing for total if __NEXT_DATA__ has no listings.
     """
     resp = requests.get(url, headers=HEADERS, timeout=30)
     resp.raise_for_status()
-    soup = BeautifulSoup(resp.text, "html.parser")
+    html = resp.text
+    print(f"[BUY-SCRAPE] fetch_buy_page: url={url[:80]}..., status={resp.status_code}, len(html)={len(html)}")
+    soup = BeautifulSoup(html, "html.parser")
     script = soup.find("script", {"id": "__NEXT_DATA__"})
+    has_next_data = bool(script and script.text)
+    print(f"[BUY-SCRAPE] fetch_buy_page: __NEXT_DATA__ exists={has_next_data}")
     if not script or not script.text:
-        return None, []
+        total = extract_total_from_page_content(html)
+        print(f"[BUY-SCRAPE] fetch_buy_page: no __NEXT_DATA__, HTML fallback total={total}")
+        return total, []
     data = json.loads(script.text)
-    return extract_total_and_listings_from_next_data(data)
+    top_keys = list(data.keys()) if isinstance(data, dict) else []
+    print(f"[BUY-SCRAPE] fetch_buy_page: __NEXT_DATA__ top keys={top_keys}")
+    total, listings = extract_total_and_listings_from_next_data(data)
+    if not listings and total is None:
+        total = extract_total_from_page_content(html)
+        print(f"[BUY-SCRAPE] fetch_buy_page: no listings from JSON, HTML fallback total={total}")
+    return total, listings
 
 
 def run_buy_listing_scrape(session_id, days_back, progress_storage, run_id=None, on_batch_callback=None):
@@ -352,6 +393,7 @@ def run_buy_listing_scrape(session_id, days_back, progress_storage, run_id=None,
                 _log(progress_data, f'Total properties for sale: {total_properties_for_sale}')
 
             if not page_listings:
+                print(f"[BUY-SCRAPE] page {page_num}: EMPTY page_listings (total_for_sale={total_properties_for_sale})")
                 _log(progress_data, f'No listings on page {page_num}, stopping')
                 break
 
@@ -368,6 +410,7 @@ def run_buy_listing_scrape(session_id, days_back, progress_storage, run_id=None,
                         listed_ago_text = listed_ago_text.get('en') or listed_ago_text.get('text') or ''
                     listed_days = parse_listed_ago_days(str(listed_ago_text))
                 if listed_days is not None and listed_days > days_back:
+                    print(f"[BUY-SCRAPE] page {page_num}: stopping due to days_back={days_back}, listed_days={listed_days}")
                     should_stop = True
                     _log(progress_data, f'Stopping: listed date older than {days_back} days')
                     break
@@ -399,6 +442,7 @@ def run_buy_listing_scrape(session_id, days_back, progress_storage, run_id=None,
     final_count = total_inserted if on_batch_callback else len(all_listings)
     progress_data['listings_scraped'] = final_count
     progress_data['total_properties_for_sale'] = total_properties_for_sale
+    print(f"[BUY-SCRAPE] run complete: final_count={final_count}, total_properties_for_sale={total_properties_for_sale}")
     _log(progress_data, f'Scrape complete: {final_count} listings')
     # When using callback: return (None, total) - caller skips insert. Otherwise return (listings, total).
     return (None, total_properties_for_sale) if on_batch_callback else (all_listings, total_properties_for_sale)
